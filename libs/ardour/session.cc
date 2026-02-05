@@ -197,6 +197,7 @@ Session::Session (AudioEngine &eng,
                   bool unnamed,
                   samplecnt_t sr)
 	: HistoryOwner (X_("editor"))
+	, ScaleProvider (nullptr)
 	,  _playlists (new SessionPlaylists)
 	, _engine (eng)
 	, process_function (&Session::process_with_events)
