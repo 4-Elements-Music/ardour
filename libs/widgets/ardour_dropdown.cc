@@ -97,6 +97,19 @@ ArdourDropdown::set_active (int c)
 	}
 }
 
+void
+ArdourDropdown::set_active (int c)
+{
+	int n = c;
+	for (auto& i : _menu.items()) {
+		if (0 == n--) {
+			_menu.set_active (c);
+			_menu.activate_item (i);
+			break;
+		}
+	}
+}
+
 int
 ArdourDropdown::get_active_row_number () const
 {
@@ -142,6 +155,21 @@ ArdourDropdown::set_active (std::string const& text)
 	}
 	set_text (text);
 	StateChanged (); /* EMIT SIGNAL */
+}
+
+void
+ArdourDropdown::set_active (int c)
+{
+	int n = c;
+	for (auto& i : _menu.items()) {
+		if (0 == n--) {
+			_menu.set_active (c);
+			_menu.activate_item (i);
+			set_text (i.get_label());
+			StateChanged ();
+		}
+		break;
+	}
 }
 
 bool
