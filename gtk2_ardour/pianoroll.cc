@@ -1453,8 +1453,10 @@ Pianoroll::make_a_region ()
 void
 Pianoroll::unset_region ()
 {
-	CueEditor::unset_region ();
-	view->set_region (nullptr);
+	if (region_view_map.empty()) {
+		CueEditor::unset_region ();
+		// view->set_region (nullptr);
+	}
 }
 
 void
