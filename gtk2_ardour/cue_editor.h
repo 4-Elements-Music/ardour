@@ -67,8 +67,6 @@ class CueEditor : public EditingContext, public PBD::HistoryOwner
 	Temporal::timecnt_t get_nudge_distance (Temporal::timepos_t const & pos, Temporal::timecnt_t& next) const;
 	std::list<SelectableOwner*> selectable_owners() { return std::list<SelectableOwner*>(); }
 
-	void instant_save();
-
 	void begin_selection_op_history ();
 	void begin_reversible_selection_op (std::string cmd_name);
 	void commit_reversible_selection_op ();
@@ -267,8 +265,7 @@ class CueEditor : public EditingContext, public PBD::HistoryOwner
 	virtual void unset_region ();
 	virtual void unset_trigger ();
 
-	RegionUISettings region_ui_settings;
-	bool maybe_set_from_rsu ();
+	bool maybe_set_from_rsu (PBD::ID const &);
 	virtual void set_from_rsu (RegionUISettings&);
 
 	void metric_get_bbt (std::vector<ArdourCanvas::Ruler::Mark>&, samplepos_t, samplepos_t, gint);
@@ -279,4 +276,7 @@ class CueEditor : public EditingContext, public PBD::HistoryOwner
 
 	virtual void region_prop_change (PBD::PropertyChange const & what_changed) {}
 	virtual void trigger_prop_change (PBD::PropertyChange const & what_changed) {}
+
+	void initialize_region_ui_settings (RegionUISettings&);
+	void add_region_ui_settings (PBD::ID const &, RegionUISettings&);
 };

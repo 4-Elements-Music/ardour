@@ -177,23 +177,17 @@ CueEditor::get_nudge_distance (Temporal::timepos_t const & pos, Temporal::timecn
 }
 
 void
-CueEditor::instant_save()
+CueEditor::initialize_region_ui_settings (RegionUISettings& rus)
 {
-	EC_LOCAL_TEMPO_SCOPE;
-
-	if (!_region) {
-		return;
-	}
-
 	/* derived classes should set other fields first, then call parent */
 
-	region_ui_settings.follow_playhead = follow_playhead();
-	region_ui_settings.samples_per_pixel = samples_per_pixel;
-	region_ui_settings.grid_type = grid_type ();
-	region_ui_settings.zoom_focus = zoom_focus();
-	region_ui_settings.mouse_mode = current_mouse_mode();
-	region_ui_settings.x_origin = _leftmost_sample;
-	region_ui_settings.snap_mode = snap_mode ();
+	rus.follow_playhead = follow_playhead();
+	rus.samples_per_pixel = samples_per_pixel;
+	rus.grid_type = grid_type ();
+	rus.zoom_focus = zoom_focus();
+	rus.mouse_mode = current_mouse_mode();
+	rus.x_origin = _leftmost_sample;
+	rus.snap_mode = snap_mode ();
 
 	/* If we're inside an ArdourWindow, get it's geometry */
 	Gtk::Widget* toplevel = contents().get_toplevel ();
@@ -210,18 +204,22 @@ CueEditor::instant_save()
 			aw->get_window()->get_geometry (x, y, width, height, depth);
 			aw->get_window()->get_origin (wx, wy);
 
-			region_ui_settings.height = height;
-			region_ui_settings.width = width;
-			region_ui_settings.x = wx;
-			region_ui_settings.y = wy;;
+			rus.height = height;
+			rus.width = width;
+			rus.x = wx;
+			rus.y = wy;;
 		}
 	}
+}
 
-	std::pair<RegionUISettingsManager::iterator,bool> res (ARDOUR_UI::instance()->region_ui_settings_manager.insert (std::make_pair (_region->id(), region_ui_settings)));
+void
+CueEditor::add_region_ui_settings (PBD::ID const & id, RegionUISettings& rus)
+{
+	auto res (ARDOUR_UI::instance()->region_ui_settings_manager.insert (std::make_pair (id, rus)));
 
 	if (!res.second) {
 		/* region (ID) already present, set contents */
-		res.first->second = region_ui_settings;
+		res.first->second = rus;
 	}
 }
 
@@ -1455,11 +1453,11 @@ CueEditor::unset_trigger ()
 }
 
 bool
-CueEditor::maybe_set_from_rsu ()
+CueEditor::maybe_set_from_rsu (PBD::ID const & id)
 {
 	EC_LOCAL_TEMPO_SCOPE;
 
-	RegionUISettingsManager::iterator rsu = ARDOUR_UI::instance()->region_ui_settings_manager.find (_region->id());
+	RegionUISettingsManager::iterator rsu = ARDOUR_UI::instance()->region_ui_settings_manager.find (id);
 	if (rsu != ARDOUR_UI::instance()->region_ui_settings_manager.end()) {
 		set_from_rsu (rsu->second);
 		return true;

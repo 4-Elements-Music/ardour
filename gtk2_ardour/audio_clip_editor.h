@@ -135,6 +135,7 @@ public:
 	void set_overlay_text (std::string const &);
 	void hide_overlay_text ();
 	void show_overlay_text ();
+	void instant_save ();
 
  private:
 	ArdourCanvas::Container*         line_container;

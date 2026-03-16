@@ -532,7 +532,7 @@ AudioClipEditor::set_region (std::shared_ptr<Region> region)
 
 	region->PropertyChanged.connect (state_connection, invalidator (*this), std::bind (&AudioClipEditor::region_changed, this, _1), gui_context ());
 
-	maybe_set_from_rsu ();
+	maybe_set_from_rsu (region->id());
 }
 
 void
@@ -903,3 +903,16 @@ AudioClipEditor::grid_type_chosen (Editing::GridType gt)
 	}
 }
 
+void
+AudioClipEditor::instant_save ()
+{
+	if (!_region) {
+		return;
+	}
+
+	EC_LOCAL_TEMPO_SCOPE;
+
+	RegionUISettings rus;
+	initialize_region_ui_settings (rus);
+	add_region_ui_settings (_region->id(), rus);
+}

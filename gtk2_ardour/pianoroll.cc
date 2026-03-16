@@ -783,7 +783,7 @@ Pianoroll::canvas_allocate (Gtk::Allocation alloc)
 
 	if (zoom_in_allocate) {
 
-		if (!maybe_set_from_rsu()) {
+		if (!_active_view || !maybe_set_from_rsu (_active_view->midi_region()->id())) {
 			zoom_to_show (max_zoom_extent());
 		}
 		if (_region) {
@@ -1744,7 +1744,7 @@ Pianoroll::set_region (std::shared_ptr<ARDOUR::Region> region)
 	(void) bg->update_data_note_range (lowest_note, highest_note);
 	bg->apply_note_range (lowest_note, highest_note, true);
 
-	if (!maybe_set_from_rsu ()) {
+	if (!_active_view || !maybe_set_from_rsu (_active_view->midi_region()->id())) {
 		/* Compute zoom level to show entire source plus some margin if possible */
 		zoom_to_show (max_zoom_extent());
 	}
@@ -2385,14 +2385,19 @@ Pianoroll::instant_save ()
 {
 	EC_LOCAL_TEMPO_SCOPE;
 
-	region_ui_settings.draw_length = draw_length();
-	region_ui_settings.draw_velocity = draw_velocity();
-	region_ui_settings.channel = draw_channel();
-	region_ui_settings.note_min = bg->lowest_note ();
-	region_ui_settings.note_max = bg->highest_note();
-	region_ui_settings.note_mode = note_mode ();
+	for (auto & [region,view] : region_view_map) {
+		RegionUISettings rus;
+		initialize_region_ui_settings (rus);
 
-	CueEditor::instant_save ();
+		rus.draw_length = draw_length();
+		rus.draw_velocity = draw_velocity();
+		rus.channel = draw_channel();
+		rus.note_min = bg->lowest_note ();
+		rus.note_max = bg->highest_note();
+		rus.note_mode = note_mode ();
+
+		add_region_ui_settings (region->id(), rus);
+	}
 }
 
 void
