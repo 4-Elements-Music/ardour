@@ -1742,7 +1742,7 @@ Pianoroll::set_region (std::shared_ptr<ARDOUR::Region> region)
 	}
 
 	(void) bg->update_data_note_range (lowest_note, highest_note);
-	bg->apply_note_range (lowest_note, highest_note, true, MidiViewBackground::RangeCanMove (MidiViewBackground::CanMoveTop|MidiViewBackground::CanMoveBottom));
+	bg->apply_note_range (lowest_note, highest_note, true);
 
 	if (!maybe_set_from_rsu ()) {
 		/* Compute zoom level to show entire source plus some margin if possible */
