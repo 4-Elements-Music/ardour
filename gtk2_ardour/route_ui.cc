@@ -2339,15 +2339,7 @@ Gdk::Color
 RouteUI::route_color () const
 {
 	Gdk::Color c;
-	std::shared_ptr<RouteGroup> g = _route->route_group ();
-	string p;
-
-	if (g && g->is_color()) {
-		Gtkmm2ext::set_color_from_rgba (c, GroupTabs::group_color (g));
-	} else {
-		Gtkmm2ext::set_color_from_rgba (c, _route->presentation_info().color());
-	}
-
+	Gtkmm2ext::set_color_from_rgba (c, _route->color ());
 	return c;
 }
 
