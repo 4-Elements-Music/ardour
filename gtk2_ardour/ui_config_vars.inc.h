@@ -164,6 +164,7 @@ UI_CONFIG_VARIABLE (bool, use_cocoa_invalidation, "use-cocoa-invalidation", true
 UI_CONFIG_VARIABLE (Editing::RegionEditDisposition, region_edit_disposition, "region-edit-disposition", Editing::PreferBottomPane)
 UI_CONFIG_VARIABLE (int, drag_sensitivity, "drag-sensitivity", 1)
 UI_CONFIG_VARIABLE (Gtk::WindowPosition, default_window_position, "default-window-position", Gtk::WIN_POS_MOUSE)
+UI_CONFIG_VARIABLE (ARDOUR::ColorMode, default_midi_note_color_mode, "default-midi-note-color-mode", ARDOUR::TrackColor)
 
 /* these are visibility-type selections in the New Track dialog that we should make persistent for the user's choices */
 UI_CONFIG_VARIABLE (bool, show_on_cue_page, "show-on-cue-page", true)
