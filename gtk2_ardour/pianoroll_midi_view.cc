@@ -52,9 +52,8 @@ PianorollMidiView::PianorollMidiView (std::shared_ptr<ARDOUR::MidiTrack> mt,
                                       ArdourCanvas::Item&      parent,
                                       ArdourCanvas::Item&      noscroll_parent,
                                       EditingContext&          ec,
-                                      MidiViewBackground&      bg,
-                                      uint32_t                 basic_color)
-	: MidiView (mt, parent, ec, bg, basic_color)
+                                      MidiViewBackground&      bg)
+	: MidiView (mt, parent, ec, bg)
 	, _noscroll_parent (&noscroll_parent)
 	, overlay_text (nullptr)
 	, active_automation (nullptr)

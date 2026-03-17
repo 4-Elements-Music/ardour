@@ -89,8 +89,7 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	MidiView (std::shared_ptr<ARDOUR::MidiTrack> mt,
 	          ArdourCanvas::Item&      parent,
 	          EditingContext&          ec,
-	          MidiViewBackground&      bg,
-	          uint32_t                 basic_color);
+	          MidiViewBackground&      bg);
 	MidiView (MidiView const & other);
 
 	virtual ~MidiView ();

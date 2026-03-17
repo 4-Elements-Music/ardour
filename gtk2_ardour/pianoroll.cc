@@ -1594,7 +1594,7 @@ Pianoroll::build_cc_menu (ArdourWidgets::MetaButton* ccbtn)
 void
 Pianoroll::add_region (std::shared_ptr<ARDOUR::Region> region, std::shared_ptr<ARDOUR::MidiTrack> track)
 {
-	PianorollMidiView* new_view = new PianorollMidiView (track, *data_group, *no_scroll_group, *this, *bg, 0xff0000ff);
+	PianorollMidiView* new_view = new PianorollMidiView (track, *data_group, *no_scroll_group, *this, *bg);
 
 	std::shared_ptr<ARDOUR::MidiRegion> mr (std::dynamic_pointer_cast<ARDOUR::MidiRegion> (region));
 	assert (mr);

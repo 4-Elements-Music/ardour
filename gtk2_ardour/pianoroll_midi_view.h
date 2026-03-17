@@ -44,8 +44,7 @@ class PianorollMidiView : public MidiView
 	             ArdourCanvas::Item&         parent,
 	             ArdourCanvas::Item&         noscroll_parent,
 	             EditingContext&             ec,
-	             MidiViewBackground&         bg,
-	             uint32_t                    basic_color
+	             MidiViewBackground&         bg
 		);
 
 	~PianorollMidiView();

@@ -110,8 +110,7 @@ using Gtkmm2ext::Keyboard;
 MidiView::MidiView (std::shared_ptr<MidiTrack> mt,
                     ArdourCanvas::Item&        parent,
                     EditingContext&            ec,
-                    MidiViewBackground&        bg,
-                    uint32_t                   basic_color)
+                    MidiViewBackground&        bg)
 	: _editing_context (ec)
 	, _midi_context (bg)
 	, _unfinished_live_notes (nullptr)
