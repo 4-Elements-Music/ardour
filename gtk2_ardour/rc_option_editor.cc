@@ -3602,6 +3602,19 @@ These settings will only take effect after %1 is restarted.\n\
 		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_select_last_drawn_note_only)
 		     ));
 
+	auto midi_color_mode = new ComboOption<ARDOUR::ColorMode> (
+		"default-midi-note-color-mode",
+		_("Default MIDI note colors"),
+		sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_default_midi_note_color_mode),
+		sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_default_midi_note_color_mode)
+		);
+
+	midi_color_mode->add (ARDOUR::MeterColors, _("Velocity"));
+	midi_color_mode->add (ARDOUR::PitchColors, _("Pitch"));
+	midi_color_mode->add (ARDOUR::ChannelColors, _("Channel"));
+	midi_color_mode->add (ARDOUR::TrackColor, _("Track"));
+
+	add_option (_("MIDI"), midi_color_mode);
 	add_option (_("MIDI"),
 	     new BoolOption (
 		     "scroll-velocity-editing",
