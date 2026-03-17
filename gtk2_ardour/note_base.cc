@@ -27,6 +27,8 @@
 
 #include "canvas/text.h"
 
+#include "ardour/midi_track.h"
+
 #include "note_base.h"
 #include "editing_context.h"
 #include "editing_syms.inc.h"
@@ -187,22 +189,20 @@ NoteBase::set_selected(bool selected)
 uint32_t
 NoteBase::base_color ()
 {
-	return base_color (_note->note(), _note->velocity(), _view.midi_context().color_mode(), _view.midi_context().region_color(), _note->channel(), selected());
+	return base_color (_note->note(), _note->velocity(), _view.midi_context().color_mode(), _view.midi_track()->color(), _note->channel(), selected());
 }
 
 uint32_t
-NoteBase::base_color (int pitch, int velocity, ARDOUR::ColorMode color_mode, Gtkmm2ext::Color default_color, int channel, bool selected)
+NoteBase::base_color (int pitch, int velocity, ARDOUR::ColorMode color_mode, Gtkmm2ext::Color track_color, int channel, bool selected)
 {
 	using namespace ARDOUR;
 
 	const uint8_t min_opacity = 15;
 	uint8_t       opacity = std::max(min_opacity, uint8_t(velocity + velocity));
-	size_t        region_color;
 
 	switch (color_mode) {
 	case TrackColor:
-		region_color = default_color;
-		return UINT_INTERPOLATE (UINT_RGBA_CHANGE_A (region_color, opacity), _selected_col, 0.5);
+		return UINT_INTERPOLATE (UINT_RGBA_CHANGE_A (track_color, opacity), _selected_col, 0.5);
 
 	case ChannelColors:
 		channel = channel % (sizeof (midi_channel_colors) / sizeof (midi_channel_colors[0]));
@@ -217,10 +217,9 @@ NoteBase::base_color (int pitch, int velocity, ARDOUR::ColorMode color_mode, Gtk
 
 	default:
 		if (UIConfiguration::instance().get_use_note_color_for_velocity()) {
-			return meter_style_fill_color(velocity, selected);
+			return meter_style_fill_color (velocity, selected);
 		} else {
-			region_color = default_color;
-			return UINT_INTERPOLATE (UINT_RGBA_CHANGE_A (region_color, opacity), _selected_col, 0.5);
+			return UINT_INTERPOLATE (UINT_RGBA_CHANGE_A (track_color, opacity), _selected_col, 0.5);
 		}
 	};
 
