@@ -124,6 +124,8 @@ public:
 		return _default_type;
 	}
 
+	uint32_t color () const;
+
 	std::shared_ptr<IO> input() const { return _input; }
 	std::shared_ptr<IO> output() const { return _output; }
 	IOVector all_inputs () const;

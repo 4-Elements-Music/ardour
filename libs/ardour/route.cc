@@ -6670,3 +6670,15 @@ Route::remove_surround_send ()
 	 */
 	_pending_surround_send.store (1);
 }
+
+uint32_t
+Route::color() const
+{
+	std::shared_ptr<RouteGroup> g = route_group ();
+
+	if (g && g->is_color()) {
+		return g->rgba ();
+	}
+
+	return presentation_info().color();
+}
