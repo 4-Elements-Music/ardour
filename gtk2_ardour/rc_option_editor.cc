@@ -2772,23 +2772,6 @@ RCOptionEditor::RCOptionEditor ()
 		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_never_display_periodic_midi)
 		     ));
 
-
-	add_option (_("Appearance/Editor"),
-	            new BoolOption (
-		            "use-note-bars-for-velocity",
-		            _("Show velocity horizontally inside notes"),
-		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_use_note_bars_for_velocity),
-		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_use_note_bars_for_velocity)
-		            ));
-
-	add_option (_("Appearance/Editor"),
-	            new BoolOption (
-		            "use-note-color-for-velocity",
-		            _("Use colors to show note velocity"),
-		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_use_note_color_for_velocity),
-		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_use_note_color_for_velocity)
-		            ));
-
 	ComboOption<Editing::NoteNameDisplay>* nnd = new ComboOption<Editing::NoteNameDisplay> (
 		"note-name-display",
 		_("Display note names in MIDI track headers"),
@@ -3594,13 +3577,13 @@ These settings will only take effect after %1 is restarted.\n\
 
 	add_option (_("MIDI"), new OptionEditorHeading (_("Editing")));
 
-	add_option (_("MIDI"),
-	     new BoolOption (
-		     "select-last-drawn-note-only",
-		     _("When drawing new notes, select only the last drawn note"),
-		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_select_last_drawn_note_only),
-		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_select_last_drawn_note_only)
-		     ));
+	add_option (_("Appearance/Editor"),
+	            new BoolOption (
+		            "use-note-bars-for-velocity",
+		            _("Show velocity horizontally inside notes"),
+		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_use_note_bars_for_velocity),
+		            sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_use_note_bars_for_velocity)
+		            ));
 
 	auto midi_color_mode = new ComboOption<ARDOUR::ColorMode> (
 		"default-midi-note-color-mode",
@@ -3615,6 +3598,14 @@ These settings will only take effect after %1 is restarted.\n\
 	midi_color_mode->add (ARDOUR::TrackColor, _("Track"));
 
 	add_option (_("MIDI"), midi_color_mode);
+	add_option (_("MIDI"),
+	     new BoolOption (
+		     "select-last-drawn-note-only",
+		     _("When drawing new notes, select only the last drawn note"),
+		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::get_select_last_drawn_note_only),
+		     sigc::mem_fun (UIConfiguration::instance(), &UIConfiguration::set_select_last_drawn_note_only)
+		     ));
+
 	add_option (_("MIDI"),
 	     new BoolOption (
 		     "scroll-velocity-editing",

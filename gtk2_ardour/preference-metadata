@@ -244,8 +244,8 @@
   editor zoom selection mouse wheel focus scroll
 [use-note-bars-for-velocity]
   midi velocity bars box
-[use-note-color-for-velocity]
-  midi velocity color
+[default-midi-note-color-mode]
+  midi velocity colors pitches channels
 [use-opengl-view]
 [use-route-color-widely]
   mixer colors faders

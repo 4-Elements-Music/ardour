@@ -201,7 +201,7 @@ MidiRegionView::parameter_changed (std::string const & p)
 		}
 	} else if (p == "color-regions-using-track-color") {
 		set_colors ();
-	} else if (p == "use-note-color-for-velocity") {
+	} else if (p == "default-midi-note-color-mode") {
 		color_handler ();
 	}
 }
