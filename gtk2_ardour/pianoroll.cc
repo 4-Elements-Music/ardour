@@ -75,7 +75,7 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	: CueEditor (name, with_transport)
 	, prh (nullptr)
 	, _editing_policy (ActiveView)
-	, _color_mode (ARDOUR::ChannelColors)
+	, _color_mode (UIConfiguration::instance().get_default_midi_note_color_mode())
 	, layered_automation (true)
 	, bg (nullptr)
 	, _active_view (nullptr)
@@ -100,7 +100,7 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	colors_dropdown.add_menu_elem (MenuElem (_("Region"), sigc::bind (sigc::mem_fun (*this, &Pianoroll::set_color_mode), ARDOUR::TrackColor)));
 	colors_dropdown.add_menu_elem (MenuElem (_("Pitch"), sigc::bind (sigc::mem_fun (*this, &Pianoroll::set_color_mode), ARDOUR::PitchColors)));
 	colors_dropdown.add_menu_elem (MenuElem (_("Setup"), sigc::mem_fun (*this, &Pianoroll::setup_colors)));
-	colors_dropdown.set_active (1);
+	colors_dropdown.set_active ((int) _color_mode);
 	ArdourWidgets::set_tooltip (colors_dropdown, _("Color Scheme for MIDI events"));
 
 	build_upper_toolbar ();
