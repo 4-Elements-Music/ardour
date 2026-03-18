@@ -2056,7 +2056,6 @@ Pianoroll::select_all_within (Temporal::timepos_t const & start, Temporal::timep
 	double topfrac;
 	double botfrac;
 
-
 	/* translate y0 and y1 to use the top of the automation area as the * origin */
 
 	double automation_origin = _active_view->automation_group_position().y;
