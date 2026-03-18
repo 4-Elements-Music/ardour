@@ -45,7 +45,7 @@ MidiViewBackground::MidiViewBackground (ArdourCanvas::Item* parent, EditingConte
 	, _data_note_max (0)
 	, _note_lines (new ArdourCanvas::RectSet (parent))
 	, _note_mode (ARDOUR::Sustained)
-	, _color_mode (ARDOUR::MeterColors)
+	, _color_mode (UIConfiguration::instance().get_default_midi_note_color_mode())
 	, _visibility_note_range (ContentsRange)
 	, note_range_set (false)
 {

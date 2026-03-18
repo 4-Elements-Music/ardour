@@ -158,6 +158,10 @@ MidiTimeAxisView::parameter_changed (string const & param)
 		if (_piano_roll_header) {
 			_piano_roll_header->instrument_info_change ();
 		}
+	} else if (param == X_("default-midi-note-color-mode")) {
+		if (_view) {
+			midi_view()->set_color_mode (UIConfiguration::instance().get_default_midi_note_color_mode());
+		}
 	}
 }
 

@@ -213,10 +213,11 @@ NoteBase::base_color (int pitch, int velocity, ARDOUR::ColorMode color_mode, Gtk
 		return NoteBase::pitch_colors[pitch];
 
 	case MeterColors:
-		return meter_style_fill_color(velocity, selected);
-	};
+		break;
+	}
 
-	return 0;
+	/* MeterColors */
+	return meter_style_fill_color(velocity, selected);
 }
 
 void

@@ -1936,7 +1936,7 @@ void
 MidiView::color_note (NoteBase* ev, int channel)
 {
 	uint32_t base_color = NoteBase::base_color (ev->note()->note(), ev->note()->velocity(),
-	                                            _midi_context.color_mode(), 0, channel, ev->selected());
+	                                            _midi_context.color_mode(), midi_track()->color(), channel, ev->selected());
 
 	if (!note_editable (ev)) {
 		base_color = Gtkmm2ext::change_alpha (base_color, 0.15);
@@ -4717,12 +4717,11 @@ MidiView::maybe_select_by_position (GdkEventButton* ev, double /*x*/, double y)
 void
 MidiView::color_handler ()
 {
-	std::cerr << "MV @ " << this << " color handler\n";
 	_patch_change_outline = UIConfiguration::instance().color ("midi patch change outline");
 	_patch_change_fill = UIConfiguration::instance().color_mod ("midi patch change fill", "midi patch change fill");
 
 	for (auto & [ note, gui ] : _events) {
-		gui->set_selected (gui->selected()); // will change color
+		color_note (gui, gui->note()->channel());
 		ghost_sync_selection (gui);
 	}
 
