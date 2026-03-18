@@ -128,6 +128,7 @@ MidiView::MidiView (std::shared_ptr<MidiTrack> mt,
 	, selection_drag (nullptr)
 	, draw_drag (nullptr)
 	, _visible_channel (-1)
+	, _sensitive (true)
 	, _optimization_iterator (_events.end())
 	, _list_editor (nullptr)
 	, _no_sound_notes (false)
@@ -227,6 +228,8 @@ MidiView::~MidiView ()
 void
 MidiView::set_sensitive (bool yn)
 {
+	_sensitive = yn;
+
 	for (auto & [model,gui] : _events) {
 		gui->item()->set_ignore_events (!yn);
 	}

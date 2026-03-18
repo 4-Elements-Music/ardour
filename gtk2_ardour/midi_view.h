@@ -537,6 +537,7 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	Drag*                                 selection_drag;
 	Drag*                                 draw_drag;
 	int                                  _visible_channel;
+	bool                                 _sensitive;
 
 	/** Currently selected NoteBase objects */
 	Selection _selection;

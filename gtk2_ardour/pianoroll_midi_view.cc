@@ -135,6 +135,10 @@ PianorollMidiView::automation_group_event (GdkEvent* ev)
 bool
 PianorollMidiView::midi_canvas_group_event (GdkEvent* ev)
 {
+	if (!_sensitive) {
+		return false;
+	}
+
 	EC_LOCAL_TEMPO_SCOPE_ARG (_editing_context);
 
 	if (ev->type == GDK_MOTION_NOTIFY) {
