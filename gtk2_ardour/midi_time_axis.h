@@ -154,9 +154,6 @@ private:
 	PianoRollHeader*              _piano_roll_header;
 	Gtk::RadioMenuItem*           _note_mode_item;
 	Gtk::RadioMenuItem*           _percussion_mode_item;
-	Gtk::RadioMenuItem*           _meter_color_mode_item;
-	Gtk::RadioMenuItem*           _channel_color_mode_item;
-	Gtk::RadioMenuItem*           _track_color_mode_item;
 	Gtk::VBox                     _midi_controls_box;
 	MidiChannelSelectorWindow*    _channel_selector;
 
