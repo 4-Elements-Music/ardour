@@ -115,15 +115,10 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	set_mouse_mode (Editing::MouseContent, true);
 
 	UIConfiguration::instance().ParameterChanged.connect (sigc::mem_fun (*this, &Pianoroll::parameter_changed));
-
-	std::cerr << "NEW PR @ " << this << std::endl;
-	PBD::stacktrace (std::cerr, 19);
 }
 
 Pianoroll::~Pianoroll ()
 {
-	std::cerr << "DELETE PR @ " << this << std::endl;
-
 	for (auto & [region,view] : region_view_map) {
 		delete view;
 	}
