@@ -19,21 +19,19 @@
 #pragma once
 
 #include <cstdio>
-#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
-
 
 #include <ardour/libardour_visibility.h>
 #include <curl/curl.h>
 
 namespace ARDOUR {
 
-class LIBARDOUR_API LibraryDescription
+class LIBARDOUR_API RemoteResourceInfo
 {
    public:
-	LibraryDescription (std::string const & n, std::string const & a, std::string const & d, std::string const & u, std::string const & l, std::string const & td, std::string const & s)
+	RemoteResourceInfo (std::string const & n, std::string const & a, std::string const & d, std::string const & u, std::string const & l, std::string const & td, std::string const & s)
 		: _name (n), _author (a), _description (d), _url (u), _license (l), _toplevel_dir (td), _size (s), _installed (false) {}
 
 	std::string const & name() const { return _name; }
@@ -60,20 +58,22 @@ class LIBARDOUR_API LibraryDescription
 
 class LIBARDOUR_API LibraryFetcher {
   public:
-	LibraryFetcher();
-
-	int add (std::string const & root_dir);
+	LibraryFetcher (std::string const& manifest, std::string const& install_path, std::string const& root_node_name);
 
 	int get_descriptions ();
 	size_t n_descriptions() const { return _descriptions.size(); }
-	void foreach_description (std::function<void (LibraryDescription)> f) const;
+	void foreach_description (std::function<void (RemoteResourceInfo)> f) const;
 
-	bool installed (LibraryDescription const & desc);
-	void foreach_description (std::function<void (LibraryDescription)> f);
+	bool installed (RemoteResourceInfo const & desc);
+	void foreach_description (std::function<void (RemoteResourceInfo)> f);
 
   private:
-	std::vector<LibraryDescription> _descriptions;
-	std::string install_path_for (LibraryDescription const &);
+	std::vector<RemoteResourceInfo> _descriptions;
+	std::string install_path_for (RemoteResourceInfo const &);
+
+	std::string _manifest_url;
+	std::string _install_path;
+	std::string _root_node_name;
 };
 
 } /* namespace */

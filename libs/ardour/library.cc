@@ -26,16 +26,12 @@
 #include <glibmm/miscutils.h>
 
 #include "pbd/ccurl.h"
-#include "pbd/error.h"
 #include "pbd/i18n.h"
-#include "pbd/file_archive.h"
-#include "pbd/pthread_utils.h"
 #include "pbd/replace_all.h"
 #include "pbd/whitespace.h"
 #include "pbd/xml++.h"
 
 #include "ardour/rc_configuration.h"
-#include "ardour/clip_library.h"
 #include "ardour/library.h"
 
 using namespace PBD;
@@ -58,7 +54,10 @@ CurlWrite_CallbackFunc_StdString(void *contents, size_t size, size_t nmemb, std:
     return newLength;
 }
 
-LibraryFetcher::LibraryFetcher ()
+LibraryFetcher::LibraryFetcher (std::string const& manifest, std::string const& install_path, std::string const& root_node_name)
+	: _manifest_url (manifest)
+	, _install_path (install_path)
+	, _root_node_name (root_node_name)
 {
 }
 
@@ -73,7 +72,7 @@ LibraryFetcher::get_descriptions ()
 	}
 	std::string buf;
 
-	curl_easy_setopt (curl, CURLOPT_URL, Config->get_resource_index_url().c_str());
+	curl_easy_setopt (curl, CURLOPT_URL, _manifest_url.c_str());
 	curl_easy_setopt (curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWrite_CallbackFunc_StdString);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
@@ -98,7 +97,7 @@ LibraryFetcher::get_descriptions ()
 	XMLNode* libraries = 0;
 
 	for (auto const & node : root.children()) {
-		if (node->name() == X_("Libraries")) {
+		if (node->name() == _root_node_name) {
 			libraries = node;
 			break;
 		}
@@ -131,35 +130,15 @@ LibraryFetcher::get_descriptions ()
 		strip_whitespace_edges (ds);
 		replace_all (ds, "\n", "");
 
-		_descriptions.push_back (LibraryDescription (n, a, ds, u, l, td, sz));
+		_descriptions.push_back (RemoteResourceInfo (n, a, ds, u, l, td, sz));
 		_descriptions.back().set_installed (installed (_descriptions.back()));
 	}
 
 	return 0;
 }
 
-int
-LibraryFetcher::add (std::string const & root_dir)
-{
-	std::string newpath;
-
-	/* just add the root dir to the relevant search path. The user can
-	 * expand the rest in the browser
-	 */
-
-	if (Config->get_sample_lib_path().find (root_dir) == string::npos) {
-		newpath = root_dir;
-		newpath += G_SEARCHPATH_SEPARATOR;
-		newpath += Config->get_sample_lib_path ();
-		Config->set_sample_lib_path (newpath);
-		Config->save_state ();
-	}
-
-	return 0;
-}
-
 void
-LibraryFetcher::foreach_description (std::function<void (LibraryDescription)> f)
+LibraryFetcher::foreach_description (std::function<void (RemoteResourceInfo)> f)
 {
 	for (auto ld : _descriptions) {
 		f (ld);
@@ -167,13 +146,13 @@ LibraryFetcher::foreach_description (std::function<void (LibraryDescription)> f)
 }
 
 std::string
-LibraryFetcher::install_path_for (LibraryDescription const & desc)
+LibraryFetcher::install_path_for (RemoteResourceInfo const & desc)
 {
-	return Glib::build_filename (clip_library_dir(true), desc.toplevel_dir());
+	return Glib::build_filename (_install_path, desc.toplevel_dir());
 }
 
 bool
-LibraryFetcher::installed (LibraryDescription const & desc)
+LibraryFetcher::installed (RemoteResourceInfo const & desc)
 {
 	std::string path = install_path_for (desc);
 	if (Glib::file_test (path, Glib::FILE_TEST_EXISTS) && Glib::file_test (path, Glib::FILE_TEST_IS_DIR)) {

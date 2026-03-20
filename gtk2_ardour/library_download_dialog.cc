@@ -94,7 +94,7 @@ LibraryDownloadDialog::~LibraryDownloadDialog ()
 void
 LibraryDownloadDialog::refill ()
 {
-	ARDOUR::LibraryFetcher lf;
+	ARDOUR::LibraryFetcher lf (Config->get_resource_index_url(), clip_library_dir(true), "Libraries");
 	if (lf.get_descriptions () || 0 == lf.n_descriptions()) {
 		ArdourMessageDialog msg (*this, _("Failed to download library index.\nPlease check your internet connection."));
 		msg.run ();
@@ -150,7 +150,7 @@ LibraryDownloadDialog::append_install_column ()
 
 
 void
-LibraryDownloadDialog::add_library (ARDOUR::LibraryDescription const & ld)
+LibraryDownloadDialog::add_library (ARDOUR::RemoteResourceInfo const & ld)
 {
 
 	Gtk::TreeModel::iterator i = _model->append();
@@ -210,9 +210,14 @@ LibraryDownloadDialog::install_finished (Gtk::TreeModel::iterator row, std::stri
 		std::string toplevel = (*row)[_columns.toplevel];
 		toplevel = Glib::build_filename (Glib::path_get_dirname (path), toplevel);
 
-		LibraryFetcher lf;
-
-		lf.add (toplevel);
+		if (Config->get_sample_lib_path().find (toplevel) == string::npos) {
+			std::string newpath;
+			newpath = toplevel;
+			newpath += G_SEARCHPATH_SEPARATOR;
+			newpath += Config->get_sample_lib_path ();
+			Config->set_sample_lib_path (newpath);
+			Config->save_state ();
+		}
 
 		(*row)[_columns.installed] = true;
 		(*row)[_columns.install] = string (_("Installed"));

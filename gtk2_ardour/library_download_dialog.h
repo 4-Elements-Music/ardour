@@ -37,7 +37,7 @@ namespace PBD {
 }
 
 namespace ARDOUR {
-	class LibraryDescription;
+	class RemoteResourceInfo;
 	class LibraryFetcher;
 }
 
@@ -47,7 +47,7 @@ class LibraryDownloadDialog : public ArdourDialog
 	LibraryDownloadDialog ();
 	~LibraryDownloadDialog ();
 
-	void add_library (ARDOUR::LibraryDescription const &);
+	void add_library (ARDOUR::RemoteResourceInfo const &);
 	void on_show ();
 
   private:
