@@ -199,6 +199,9 @@ class Pianoroll : public CueEditor
 	EditingPolicy _editing_policy;
 	ARDOUR::ColorMode _color_mode;
 
+	ArdourWidgets::ArdourButton size_button;
+	void toggle_size();
+
 	ArdourWidgets::ArdourDropdown region_dropdown;
 	void rebuild_region_dropdown ();
 

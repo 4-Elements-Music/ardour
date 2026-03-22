@@ -54,6 +54,7 @@
 #include "pianoroll.h"
 #include "pianoroll_midi_view.h"
 #include "pitch_color_dialog.h"
+#include "public_editor.h"
 #include "note_base.h"
 #include "prh.h"
 #include "timers.h"
@@ -76,6 +77,7 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	, prh (nullptr)
 	, _editing_policy (ActiveView)
 	, _color_mode (UIConfiguration::instance().get_default_midi_note_color_mode())
+	, size_button (ArdourButton::default_elements, true)
 	, layered_automation (true)
 	, bg (nullptr)
 	, _active_view (nullptr)
@@ -87,6 +89,8 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 
 	load_bindings ();
 	register_actions ();
+
+	size_button.signal_clicked.connect ([&]() { toggle_size (); });
 
 	using namespace Gtk::Menu_Helpers;
 
@@ -104,12 +108,10 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	ArdourWidgets::set_tooltip (colors_dropdown, _("Color Scheme for MIDI events"));
 
 	build_upper_toolbar ();
-	build_canvas ();
-
 	build_grid_type_menu ();
 	build_draw_midi_menus();
-
 	build_lower_toolbar ();
+	build_canvas ();
 
 	set_action_defaults ();
 	set_mouse_mode (Editing::MouseContent, true);
@@ -131,6 +133,12 @@ Pianoroll::~Pianoroll ()
 
 	delete bg;
 	delete xcursor;
+}
+
+void
+Pianoroll::toggle_size()
+{
+	PublicEditor::instance().toggle_main ();
 }
 
 void
@@ -430,6 +438,7 @@ Pianoroll::pack_outer (Gtk::Box& box)
 	box.pack_start (visible_channel_selector, false, false);
 	box.pack_start (note_mode_button, false, false);
 
+	box.pack_end (size_button, false, false);
 	box.pack_end (colors_dropdown, false, false);
 	box.pack_end (region_dropdown, false, false);
 	box.pack_end (policy_dropdown, false, false);
