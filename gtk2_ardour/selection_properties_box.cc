@@ -158,10 +158,9 @@ SelectionPropertiesBox::on_unmap ()
 void
 SelectionPropertiesBox::delete_region_editor ()
 {
-	if (!_region_editor) {
-		return;
+	if (_region_editor) {
+		_region_editor_box.remove (*_region_editor);
 	}
-	_region_editor_box.remove (*_region_editor);
 	delete _region_editor;
 	delete _region_fx_box;
 	delete _pianoroll;
@@ -245,32 +244,35 @@ SelectionPropertiesBox::selection_changed ()
 			AudioRegionView* arv = dynamic_cast<AudioRegionView*> (rv);
 			if (arv) {
 				_region_editor = new AudioRegionEditor (_session, arv);
-			} else {
-				_region_editor = new RegionEditor (_session, rv->region());
-			}
-			// TODO subscribe to region name changes
-			_region_editor->set_label (string_compose (_("Region '%1'"), rv->region()->name ()));
-			_region_editor->set_padding (4);
-			_region_editor->set_edge_color (0x000000ff); // black
-			_region_editor->show_all ();
-			_region_editor_box.pack_start (*_region_editor, false, false);
+			} 
 
 			MidiRegionView* mrv = dynamic_cast<MidiRegionView*> (rv);
 
 			if (!mrv) {
+				// TODO subscribe to region name changes
+
+				_region_editor->set_label (string_compose (_("Region '%1'"), rv->region()->name ()));
+				_region_editor->set_padding (4);
+				_region_editor->set_edge_color (0x000000ff); // black
+				_region_editor->show_all ();
+
+				_region_editor_box.pack_start (*_region_editor, false, false);
 				/* Audio regions get RegionFX box, but MIDI
 				   regions do not (as of Feb 2026, anyway)
 				*/
 				_region_fx_box = new RegionFxPropertiesBox (rv->region ());
 				_region_editor_box.pack_start (*_region_fx_box);
-
-			}
-
 #ifndef MIXBUS
-			float min_h = _region_editor->size_request().height;
-			float ui_scale = std::max<float> (1.f, UIConfiguration::instance().get_ui_scale());
-			_region_editor_box.set_size_request (-1, std::max (365 * ui_scale, min_h));
+				float min_h = _region_editor->size_request().height;
+				float ui_scale = std::max<float> (1.f, UIConfiguration::instance().get_ui_scale());
+				_region_editor_box.set_size_request (-1, std::max (365 * ui_scale, min_h));
 #endif
+			} else {
+#ifndef MIXBUS
+				float ui_scale = std::max<float> (1.f, UIConfiguration::instance().get_ui_scale());
+				_region_editor_box.set_size_request (-1, 365 * ui_scale);
+#endif
+			}
 
 			rv->RegionViewGoingAway.connect_same_thread (_region_connection, std::bind (&SelectionPropertiesBox::delete_region_editor, this));
 		}
@@ -291,7 +293,7 @@ SelectionPropertiesBox::selection_changed ()
 		_slot_prop_box->show ();
 		_route_prop_box->hide ();
 		delete_region_editor ();
-	} else if (_region_editor) {
+	} else if (_region_editor || _pianoroll) {
 		_slot_prop_box->hide ();
 		_route_prop_box->hide ();
 		_region_editor_box.show ();
@@ -351,13 +353,10 @@ SelectionPropertiesBox::show_similar_midi_regions (RegionSelection& rs)
 				}
 			}
 
-			std::cerr << "Add " << mr->name() << std::endl;
-
 			_pianoroll->add_region (mr, mt);
 		}
 	}
 
-	std::cerr << "set " << midi_region_views.back()->region()->name() << std::endl;
 	_pianoroll->set_region (midi_region_views.back()->region());
 
 	_region_editor_box.pack_start (_pianoroll->contents(), true, true);
