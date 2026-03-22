@@ -102,6 +102,8 @@ public:
 	void att_right_button_toggled();
 	void att_bottom_button_toggled();
 
+	void toggle_main ();
+
 	void show_att_bottom (bool);
 	bool should_show_att_bottom (); /* ought to be const */
 
