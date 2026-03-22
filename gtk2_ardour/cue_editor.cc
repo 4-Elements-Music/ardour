@@ -529,7 +529,7 @@ CueEditor::build_upper_toolbar ()
 	pack_outer (*toolbar_outer);
 
 	toolbar_outer->pack_start (*(manage (new ArdourScalingSpacer (16, 1))), false, false);
-	toolbar_outer->pack_start (*toolbar_inner, true, false);
+	toolbar_outer->pack_start (*toolbar_inner, false, false);
 
 	build_zoom_focus_menu ();
 	zoom_focus_selector.set_text (zoom_focus_strings[(int)zoom_focus()]);
