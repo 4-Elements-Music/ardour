@@ -631,13 +631,3 @@ Tabbable::should_show_att_bottom ()
 	return false;
 }
 
-void
-Tabbable::toggle_main ()
-{
-	if (content_main.is_visible()) {
-		content_main.hide ();
-		content_main.get_parent()->remove (content_main);
-	} else {
-		content_main.show ();
-	}
-}
