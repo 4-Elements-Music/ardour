@@ -61,6 +61,7 @@
 #include "ardour/convolver.h"
 #include "ardour/dB.h"
 #include "ardour/delayline.h"
+#include "ardour/demo_sessions.h"
 #include "ardour/disk_reader.h"
 #include "ardour/disk_writer.h"
 #include "ardour/dsp_filter.h"
@@ -2975,6 +2976,7 @@ LuaBindings::common (lua_State* L)
 		.beginNamespace ("ARDOUR")
 		.addFunction ("user_config_directory", &ARDOUR::user_config_directory)
 		.addFunction ("user_cache_directory", &ARDOUR::user_cache_directory)
+		.addFunction ("inflate_demo_session", &ARDOUR::inflate_demo_session)
 		.endNamespace (); // end ARDOUR
 
 	luabridge::getGlobalNamespace (L)

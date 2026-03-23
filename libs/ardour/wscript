@@ -57,6 +57,7 @@ libardour_sources = [
         'debug.cc',
         'delayline.cc',
         'delivery.cc',
+        'demo_sessions.cc',
         'directory_names.cc',
         'disk_io.cc',
         'disk_reader.cc',
