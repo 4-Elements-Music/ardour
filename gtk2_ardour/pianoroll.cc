@@ -72,12 +72,13 @@ using namespace ArdourWidgets;
 using namespace Gtkmm2ext;
 using namespace Temporal;
 
-Pianoroll::Pianoroll (std::string const & name, bool with_transport)
+Pianoroll::Pianoroll (std::string const & name, bool with_transport, bool expandabl)
 	: CueEditor (name, with_transport)
 	, prh (nullptr)
 	, _editing_policy (ActiveView)
 	, _color_mode (UIConfiguration::instance().get_default_midi_note_color_mode())
 	, size_button (ArdourButton::default_elements, true)
+	, expandable (expandabl)
 	, layered_automation (true)
 	, bg (nullptr)
 	, _active_view (nullptr)
@@ -90,6 +91,7 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport)
 	load_bindings ();
 	register_actions ();
 
+	size_button.set_icon (ArdourIcon::ZoomFull);
 	size_button.signal_clicked.connect ([&]() { toggle_size (); });
 
 	using namespace Gtk::Menu_Helpers;
@@ -438,7 +440,9 @@ Pianoroll::pack_outer (Gtk::Box& box)
 	box.pack_start (visible_channel_selector, false, false);
 	box.pack_start (note_mode_button, false, false);
 
-	box.pack_end (size_button, false, false);
+	if (expandable) {
+		box.pack_end (size_button, false, false);
+	}
 	box.pack_end (colors_dropdown, false, false);
 	box.pack_end (region_dropdown, false, false);
 	box.pack_end (policy_dropdown, false, false);
@@ -625,6 +629,7 @@ Pianoroll::build_canvas ()
 	_canvas.signal_show().connect (sigc::mem_fun (*this, &CueEditor::catch_pending_show_region));
 
 	_toolbox.pack_start (_canvas_viewport, true, true);
+	_toolbox.reorder_child (_canvas_viewport, 1);
 }
 
 void
@@ -761,6 +766,8 @@ Pianoroll::canvas_allocate (Gtk::Allocation alloc)
 
 	_visible_canvas_width = alloc.get_width();
 	_visible_canvas_height = alloc.get_height();
+
+	std::cerr << "canvas allocate " << _visible_canvas_width << " x " << _visible_canvas_height << std::endl;
 
 	double timebars = n_timebars * timebar_height;
 	bg->set_size (alloc.get_width(), alloc.get_height() - timebars);
