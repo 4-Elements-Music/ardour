@@ -494,6 +494,8 @@ public:
 
 	void find_and_display_track ();
 
+	void toggle_main ();
+
 protected:
 	void map_transport_state ();
 	void map_position_change (samplepos_t);

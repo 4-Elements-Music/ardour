@@ -5846,3 +5846,26 @@ Editor::upper_left() const
 	return get_trackview_group ()->canvas_origin ();
 }
 
+void
+Editor::toggle_main ()
+{
+	/* this code requires removing the alignment that holds
+	 * content_att_bottom in order to function
+	 */
+#if 0
+	Gtk::Box* parent = dynamic_cast<Gtk::Box*> (content_att_bottom.get_parent());
+
+	if (content_main.is_visible()) {
+		content_main_vbox.remove (content_main);
+		if (parent) {
+			parent->set_child_packing (content_att_bottom, true, true, 0);
+		}
+	} else {
+		content_main_vbox.pack_start (content_main, true, true);
+		content_main_vbox.reorder_child (content_main, 1);
+		if (parent) {
+			parent->set_child_packing (content_att_bottom, false, false, 0);
+		}
+	}
+#endif
+}
