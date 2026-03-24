@@ -143,6 +143,11 @@ Tabbable::default_layout ()
 	} else {
 		content_inner_hbox.pack_start (content_main_vbox, true, true);
 
+		/* This alignment appears to be used *only* to add 5px of
+		 * padding at the top of content_att_bottom, to match the space
+		 * the pane divider would take in the if() clause above.
+		 */
+
 		Gtk::Alignment* btm_align = manage (new Gtk::Alignment());
 		btm_align->set_padding (5, 0, 0, 0); // 5px at top
 		btm_align->add (content_att_bottom);
