@@ -31,10 +31,12 @@
 #include "pbd/gstdio_compat.h"
 #include <glibmm.h>
 
+#include <ytkmm/cellrendererprogress.h>
 #include <ytkmm/filechooser.h>
 #include <ytkmm/stock.h>
 
 #include "pbd/basename.h"
+#include "pbd/downloader.h"
 #include "pbd/failed_constructor.h"
 #include "pbd/file_utils.h"
 #include "pbd/replace_all.h"
@@ -48,7 +50,9 @@
 #include "widgets/tooltips.h"
 
 #include "ardour/audioengine.h"
+#include "ardour/demo_sessions.h"
 #include "ardour/filesystem_paths.h"
+#include "ardour/library.h"
 #include "ardour/luascripting.h"
 #include "ardour/recent_sessions.h"
 #include "ardour/session.h"
@@ -60,6 +64,7 @@
 
 #include "ardour_message.h"
 #include "ardour_ui.h"
+#include "context_menu_helper.h"
 #include "session_dialog.h"
 #include "opts.h"
 #include "engine_dialog.h"
@@ -81,6 +86,9 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	, _initial_tab (initial_tab)
 	, new_name_was_edited (false)
 	, new_folder_chooser (FILE_CHOOSER_ACTION_SELECT_FOLDER)
+	, demo_folder_chooser (FILE_CHOOSER_ACTION_SELECT_FOLDER)
+	, demo_name_was_edited (false)
+	, download_active (false)
 {
 	action_group = ActionGroup::create (X_("SessionDialog"));
 
@@ -91,6 +99,8 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	action_group->add (recent_session_action, sigc::mem_fun (this, &SessionDialog::recent_button_choice_action));
 	existing_session_action = Action::create (X_("Open"));
 	action_group->add (existing_session_action, sigc::mem_fun (this, &SessionDialog::existing_button_choice_action));
+	demo_session_action = Action::create (X_("DemoSessions"));
+	action_group->add (demo_session_action, sigc::mem_fun (this, &SessionDialog::demo_button_choice_action));
 
 	set_position (WIN_POS_CENTER);
 	get_vbox()->set_spacing (6);
@@ -123,6 +133,13 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	existing_button.set_can_focus (true);
 	existing_button.set_related_action (existing_session_action);
 
+	demo_button.set_text (_("DEMO\nSessions"));
+	demo_button.set_name ("tab button");
+	demo_button.set_tweaks(ArdourButton::Tweaks(ArdourButton::ForceFlat));
+	demo_button.set_corner_mask(ArdourButton::NONE);
+	demo_button.set_can_focus (true);
+	demo_button.set_related_action (demo_session_action);
+
 	prefs_button.set_text(_("SETTINGS"));
 	prefs_button.set_name ("tab button");
 	prefs_button.signal_button_press_event().connect (sigc::mem_fun (*this, &SessionDialog::prefs_button_pressed), false);
@@ -132,6 +149,7 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	grp->add_widget(new_button);
 	grp->add_widget(recent_button);
 	grp->add_widget(existing_button);
+	grp->add_widget(demo_button);
 
 	int top = 0;
 	int row = 0;
@@ -181,6 +199,9 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 
 	_open_table.attach (recent_button,     0,1, row, row + 1, FILL, FILL); ++row;
 	_open_table.attach (existing_button,   0,1, row, row + 1, FILL, FILL); ++row;
+	if (!Config->get_demo_session_index_url ().empty ()) {
+		_open_table.attach (demo_button,       0,1, row, row + 1, FILL, FILL); ++row;
+	}
 	_open_table.attach (new_button,        0,1, row, row + 1, FILL, FILL); ++row;
 
 	Label *vblank = manage (new Label());
@@ -198,14 +219,17 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	_tabs.append_page(session_new_vbox);
 	_tabs.append_page(recent_vbox);
 	_tabs.append_page(existing_session_chooser);
+	_tabs.append_page(demo_vbox);
 
 	session_new_vbox.show_all();
 	recent_vbox.show_all();
 	existing_session_chooser.show_all();
+	demo_vbox.show_all ();
 
 	_tabs.show_all();
 
 	cancel_button = add_button ((cancel_not_quit ? Stock::CANCEL : Stock::QUIT), RESPONSE_CANCEL);
+	cancel_button->signal_button_press_event().connect (sigc::mem_fun (*this, &SessionDialog::cancel_button_pressed), false);
 
 	open_button = add_button (Stock::OPEN, RESPONSE_ACCEPT);
 	open_button->signal_button_press_event().connect (sigc::mem_fun (*this, &SessionDialog::open_button_pressed), false);
@@ -244,6 +268,10 @@ SessionDialog::SessionDialog (DialogTab initial_tab, const std::string& session_
 	setup_untitled_session ();
 	setup_recent_sessions ();
 
+	if (!Config->get_demo_session_index_url ().empty ()) {
+		setup_demo_sessions ();
+	}
+
 	recent_vbox.pack_start (recent_scroller, true, true);
 
 	get_vbox()->show_all ();
@@ -273,7 +301,7 @@ SessionDialog::on_show ()
 {
 	ArdourDialog::on_show ();
 
-	_tabs.set_current_page(3); // force change
+	_tabs.set_current_page(4); // force change
 	switch (_initial_tab) {
 		case New:
 			_tabs.set_current_page(0);
@@ -294,7 +322,8 @@ SessionDialog::tab_page_switched(GtkNotebookPage*, guint page_number)
 	new_button.set_active_state      (page_number==0 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
 	recent_button.set_active_state   (page_number==1 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
 	existing_button.set_active_state (page_number==2 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
-	prefs_button.set_active_state    (page_number==3 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
+	demo_button.set_active_state     (page_number==3 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
+	prefs_button.set_active_state    (page_number==4 ? Gtkmm2ext::ExplicitActive : Gtkmm2ext::Off);
 	/* clang-format on */
 
 	//check the status of each tab and sensitize the 'open' button appropriately
@@ -313,6 +342,10 @@ SessionDialog::tab_page_switched(GtkNotebookPage*, guint page_number)
 		case 2:
 			existing_file_selected();
 			_disable_plugins.show ();
+			break;
+		case 3:
+			_disable_plugins.hide ();
+			query_demo_sessions ();
 			break;
 	}
 }
@@ -446,6 +479,11 @@ SessionDialog::session_name (bool& should_be_new)
 		should_be_new = false;
 		return existing_session_chooser.get_filename ();
 	} break;
+	case 3: {
+		string val = demo_name_entry.get_text ();
+		strip_whitespace_edges (val);
+		return val;
+	} break;
 	}
 
 	return "";
@@ -478,6 +516,13 @@ SessionDialog::session_folder ()
 		case 2:
 			/* existing session chosen from file chooser */
 			return existing_session_chooser.get_current_folder ();
+		case 3:
+			{
+				std::string val = demo_name_entry.get_text();
+				strip_whitespace_edges (val);
+				std::string legal_session_folder_name = legalize_for_path (val);
+				return Glib::build_filename (demo_folder_chooser.get_filename (), legal_session_folder_name);
+			}
 		default:
 			break;
 	}
@@ -633,21 +678,43 @@ SessionDialog::existing_button_choice_action ()
 	_tabs.set_current_page(2);
 }
 
+void
+SessionDialog::demo_button_choice_action ()
+{
+	_tabs.set_current_page(3);
+}
+
 bool
 SessionDialog::prefs_button_pressed (GdkEventButton*)
 {
-	_tabs.set_current_page(3);
+	_tabs.set_current_page(4);
 
 	open_button->set_sensitive(false);  //do not allow to open a session from this page
 
+	return true;
+}
+bool
+SessionDialog::cancel_button_pressed (GdkEventButton* ev)
+{
+	if (download_active) {
+		cancel_download = true;
+		return true;
+	}
+
+	response (RESPONSE_CANCEL);
 	return true;
 }
 
 bool
 SessionDialog::open_button_pressed (GdkEventButton* ev)
 {
-	if (Gtkmm2ext::Keyboard::modifier_state_equals (ev->state, Gtkmm2ext::Keyboard::PrimaryModifier)) {
+	if (ev && Gtkmm2ext::Keyboard::modifier_state_equals (ev->state, Gtkmm2ext::Keyboard::PrimaryModifier)) {
 		_disable_plugins.set_active();
+	}
+	if (_tabs.get_current_page() == 3) {
+		if (!deploy_demo_session ()) {
+			return true;
+		}
 	}
 	response (RESPONSE_ACCEPT);
 	return true;
@@ -776,7 +843,7 @@ SessionDialog::setup_new_session_page ()
 	name_hbox->pack_start (*name_label, false, true);
 	name_hbox->pack_start (new_name_entry, true, true);
 
-	new_name_entry.signal_key_press_event().connect (sigc::mem_fun (*this, &SessionDialog::new_name_edited), false);
+	new_name_entry.signal_key_press_event().connect (sigc::mem_fun (*this, &SessionDialog::name_edited), false);
 	new_name_entry.signal_changed().connect (sigc::mem_fun (*this, &SessionDialog::new_name_changed));
 	new_name_entry.signal_activate().connect (sigc::mem_fun (*this, &SessionDialog::new_name_activated));
 
@@ -885,8 +952,65 @@ SessionDialog::setup_new_session_page ()
 	session_new_vbox.show_all ();
 }
 
+void
+SessionDialog::setup_demo_sessions ()
+{
+	demo_model = ListStore::create (demo_columns);
+	demo_display.set_model (demo_model);
+
+	demo_display.append_column (_("Session Name"), demo_columns.name);
+	demo_display.append_column (_("Download Size"), demo_columns.size);
+
+	Gtk::CellRendererProgress* progress_renderer = new Gtk::CellRendererProgress();
+	progress_renderer->property_width() = std::max<int>(100, rintf(100. * UIConfiguration::instance().get_ui_scale()));
+	Gtk::TreeViewColumn* tvc = manage (new Gtk::TreeViewColumn ("", *progress_renderer));
+	tvc->add_attribute (*progress_renderer, "value", demo_columns.progress);
+	tvc->add_attribute (*progress_renderer, "visible", demo_columns.downloading);
+	demo_display.append_column (*tvc);
+
+	demo_display.get_selection()->set_mode (Gtk::SELECTION_SINGLE);
+	demo_display.get_selection()->signal_changed().connect (sigc::mem_fun (*this, &SessionDialog::demo_session_selected));
+	demo_display.signal_row_activated().connect (sigc::mem_fun (*this, &SessionDialog::demo_row_activated));
+	demo_display.signal_button_press_event().connect (sigc::mem_fun (*this, &SessionDialog::demo_button_press), false);
+
+	demo_folder_chooser.set_title (_("Select folder for session"));
+	Gtkmm2ext::add_volume_shortcuts (demo_folder_chooser);
+	demo_folder_chooser.set_current_folder (poor_mans_glob (Config->get_default_session_parent_dir()));
+
+	demo_description.set_wrap_mode (Gtk::WRAP_WORD);
+	demo_description.set_size_request (-1, std::max<int>(80, rintf(80. * UIConfiguration::instance().get_ui_scale())));
+
+	demo_name_entry.signal_changed().connect (sigc::mem_fun (*this, &SessionDialog::demo_name_changed));
+	demo_name_entry.signal_activate().connect (sigc::mem_fun (*this, &SessionDialog::demo_name_activated));
+
+	demo_name_entry.signal_key_press_event().connect (sigc::mem_fun (*this, &SessionDialog::name_edited), false);
+
+	demo_scroller.add (demo_display);
+	demo_scroller.set_policy (Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+	demo_scroller.set_shadow_type	(Gtk::SHADOW_IN);
+
+	Label* folder_label = manage (new Label (_("Extract demo session to:")));;
+	Label* name_label   = manage (new Label (_("Session name:")));
+
+	HBox* folder_hbox = manage (new HBox);
+	folder_hbox->set_spacing (8);
+	folder_hbox->pack_start (*folder_label, false, false);
+	folder_hbox->pack_start (demo_folder_chooser, true, true);
+
+	HBox* name_hbox = manage (new HBox);
+	name_hbox->set_spacing (8);
+	name_hbox->pack_start (*name_label, false, true);
+	name_hbox->pack_start (demo_name_entry, true, true);
+
+	demo_vbox.pack_start (demo_scroller, true, true);
+	demo_vbox.pack_start (demo_description, false, false);
+	demo_vbox.pack_start (*folder_hbox, false, false);
+	demo_vbox.pack_start (*name_hbox, false, false);
+	demo_vbox.set_spacing (8);
+}
+
 bool
-SessionDialog::new_name_edited (GdkEventKey* ev)
+SessionDialog::name_edited (GdkEventKey* ev)
 {
 	switch (ev->keyval) {
 	case GDK_KP_Enter:
@@ -894,7 +1018,14 @@ SessionDialog::new_name_edited (GdkEventKey* ev)
 	case GDK_Return:
 		break;
 	default:
-		new_name_was_edited = true;
+		switch (_tabs.get_current_page()) {
+			case 0:
+				new_name_was_edited = true;
+				break;
+			case 3:
+				demo_name_was_edited = true;
+				break;
+		}
 	}
 
 	return false;
@@ -1316,4 +1447,262 @@ SessionDialog::on_delete_event (GdkEventAny* ev)
 {
 	response (RESPONSE_CANCEL);
 	return ArdourDialog::on_delete_event (ev);
+}
+
+void
+SessionDialog::add_demo_session (ARDOUR::RemoteResourceInfo const& ld)
+{
+	Gtk::TreeModel::iterator i     = demo_model->append();
+	(*i)[demo_columns.name]        = ld.name();
+	(*i)[demo_columns.size]        = ld.size();
+	(*i)[demo_columns.url]         = ld.url();
+	(*i)[demo_columns.file]        = ld.toplevel_dir();
+	(*i)[demo_columns.downloading] = false;
+	(*i)[demo_columns.description] = Glib::Markup::escape_text (ld.description());
+}
+
+void
+SessionDialog::query_demo_sessions ()
+{
+	if (Config->get_demo_session_index_url ().empty ()) {
+		return;
+	}
+	if (!demo_model->children().empty()) {
+		/* fill only once */
+		return;
+	}
+
+	ARDOUR::LibraryFetcher lf (Config->get_demo_session_index_url (), demo_session_dir(), "Sessions");
+
+	if (lf.get_descriptions () || 0 == lf.n_descriptions()) {
+		ArdourMessageDialog msg (_("Failed to retrieve demo sessions list. Please check your internet connection."), false, MESSAGE_ERROR);
+		msg.run ();
+		return;
+	}
+	if (lf.n_descriptions()) {
+		demo_model->clear ();
+	}
+	lf.foreach_description (std::bind (&SessionDialog::add_demo_session, this, _1));
+}
+
+void
+SessionDialog::demo_session_selected ()
+{
+	if (demo_display.get_selection()->count_selected_rows() == 0) {
+		demo_description.get_buffer()->set_text (string());
+		open_button->set_sensitive(false);  //do not allow to open a session from this page
+		return;
+	}
+
+  Gtk::TreeModel::iterator row = demo_display.get_selection()->get_selected();
+  string name = (*row)[demo_columns.name];
+	string desc = (*row)[demo_columns.description];
+	demo_name_entry.set_text (name);
+	demo_description.get_buffer()->set_text (desc);
+}
+
+void
+SessionDialog::demo_row_activated (const Gtk::TreePath& path, Gtk::TreeViewColumn* col)
+{
+	if (demo_display.get_selection()->count_selected_rows() != 1 || download_active) {
+		return;
+	}
+
+	if (demo_name_entry.get_text().empty () || !demo_name_was_edited) {
+		Gtk::TreeModel::iterator row = demo_display.get_selection()->get_selected();
+		string name = (*row)[demo_columns.name];
+		demo_name_entry.set_text (name);
+	}
+
+	open_button_pressed (NULL); // RESPONSE_ACCEPT
+}
+
+bool
+SessionDialog::demo_button_press (GdkEventButton* ev)
+{
+	if (download_active) {
+		return true;
+	}
+	if (demo_display.get_selection()->count_selected_rows() != 1) {
+		return false;
+	}
+	if (!Gtkmm2ext::Keyboard::is_context_menu_event (ev)) {
+		return false;
+	}
+
+	Gtk::TreeModel::iterator row = demo_display.get_selection()->get_selected();
+	string demo_filename = (*row)[demo_columns.file];
+	string demo_session_archive = Glib::build_filename (demo_session_dir (), demo_filename);
+
+	bool exists = Glib::file_test (demo_session_archive, Glib::FILE_TEST_EXISTS);
+
+	using namespace Gtk::Menu_Helpers;
+	Gtk::Menu* m     = ARDOUR_UI_UTILS::shared_popup_menu ();
+	MenuList&  items = m->items ();
+
+	items.push_back (MenuElem (_("Delete Downloaded Session Archive"), [demo_session_archive](){ ::g_unlink (demo_session_archive.c_str()); }));
+	items.back ().set_sensitive (exists);
+	m->popup (ev->button, ev->time);
+
+	return true;
+}
+
+void
+SessionDialog::demo_name_changed ()
+{
+	std::string name = demo_name_entry.get_text();
+
+	std::string const& illegal = Session::session_name_is_legal (name);
+	if (!illegal.empty()) {
+		ArdourMessageDialog msg (string_compose (_("To ensure compatibility with various systems\nsession names may not contain a '%1' character"), illegal));
+		msg.run ();
+		name.erase (remove_if (name.begin(), name.end(), is_invalid_session_char), name.end());
+		new_name_entry.set_text (name);
+	}
+
+	if (demo_display.get_selection()->count_selected_rows() == 0 || demo_name_entry.get_text().empty()) {
+		open_button->set_sensitive (false);
+	} else {
+		open_button->set_sensitive (true);
+	}
+}
+
+void
+SessionDialog::demo_name_activated ()
+{
+	if (open_button->get_sensitive () && !download_active) {
+		open_button_pressed (NULL); // RESPONSE_ACCEPT
+	}
+}
+
+void
+SessionDialog::set_downloading (bool en)
+{
+	if (en) {
+		download_active = true;
+		open_button->set_sensitive (false);
+		new_button.set_sensitive (false);
+		recent_button.set_sensitive (false);
+		existing_button.set_sensitive (false);
+		prefs_button.set_sensitive (false);
+	} else {
+		download_active = false;
+		open_button->set_sensitive (true);
+		new_button.set_sensitive (true);
+		recent_button.set_sensitive (true);
+		existing_button.set_sensitive (true);
+		prefs_button.set_sensitive (true);
+	}
+}
+
+bool
+SessionDialog::deploy_demo_session ()
+{
+	if (demo_display.get_selection()->count_selected_rows() != 1) {
+		assert (0);
+		return false;
+	}
+
+	/* test if session exists */
+	if (Glib::file_test (session_folder (), Glib::FILE_TEST_EXISTS)) {
+		ArdourMessageDialog msg (_("A session with the given name alredy exists.\nPlease choose a different name or folder."), false, MESSAGE_ERROR);
+		msg.run ();
+		return false;
+	}
+
+	/* Download session, unless already downloaded */
+	Gtk::TreeModel::iterator row = demo_display.get_selection()->get_selected();
+	string demo_filename = (*row)[demo_columns.file];
+	string demo_session_archive = Glib::build_filename (demo_session_dir (), demo_filename);
+
+	if (!Glib::file_test (demo_session_archive, Glib::FILE_TEST_EXISTS)) {
+		std::string url = (*row)[demo_columns.url];
+		PBD::Downloader* downloader;
+
+		try {
+			downloader = new PBD::Downloader (url, demo_session_dir ());
+		} catch (...) {
+			ArdourMessageDialog msg (_("Failed to initiate downloading."), false, MESSAGE_ERROR);
+			msg.run ();
+			return false;
+		}
+
+		(*row)[demo_columns.downloader] = downloader;
+		(*row)[demo_columns.downloading] = true;
+
+		cancel_download = false;
+		downloader->start ();
+		set_downloading (true);
+
+		Glib::signal_timeout().connect (sigc::bind (sigc::mem_fun (*this, &SessionDialog::demo_dl_timer_callback), downloader, TreePath(row)), 40);
+
+		/* wait for download to complete */
+		while ((downloader = (*row)[demo_columns.downloader]) != NULL) {
+			ARDOUR::GUIIdle ();
+			// TODO only sleep if GUI did not process any events
+			Glib::usleep (10000);
+		}
+
+		int status = (*row)[demo_columns.status];
+		if (status < 0) {
+			set_downloading (false);
+			if (!cancel_download) {
+				ArdourMessageDialog msg (_("Downloading demo session failed."), false, MESSAGE_ERROR);
+				msg.run ();
+			}
+			return false;
+		}
+	}
+
+
+	std::string error_msg = _("Failed to extract demo session archive.");
+	switch (ARDOUR::inflate_demo_session (PBD::basename_nosuffix (demo_filename), session_folder ())) {
+		case 0:
+			return true; // OK -> close dialog
+			break;
+		case -1:
+			error_msg = _("Demo Session not found.");
+			break;
+		case -2:
+			error_msg = _("Invalid Session Name.");
+			break;
+		case -3:
+			error_msg = _("Target folder for Demo Session exists.");
+			break;
+		case 1:
+			/* invalid file, extract failed */
+			::g_unlink (demo_session_archive.c_str());
+			break;
+		default:
+			break;
+	}
+
+	ArdourMessageDialog msg (error_msg, false, MESSAGE_ERROR);
+	msg.run ();
+
+	set_downloading (false);
+
+	return false; // Error
+}
+
+bool
+SessionDialog::demo_dl_timer_callback (Downloader* dl, Gtk::TreePath treepath)
+{
+	Gtk::TreeModel::iterator row = demo_model->get_iter (treepath);
+
+	if (dl->status() == 0) {
+		(*row)[demo_columns.progress] = (int) round (dl->progress() * 100.0);
+		if (cancel_download) {
+			dl->cancel ();
+		}
+		return true; /* call again */
+	}
+
+	(*row)[demo_columns.progress] = 0.;
+	(*row)[demo_columns.downloader] = 0;
+
+	(*row)[demo_columns.status] = dl->status();
+	(*row)[demo_columns.downloading] = false;
+	delete dl;
+	return false;
 }

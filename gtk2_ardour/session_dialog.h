@@ -52,6 +52,14 @@
 
 class EngineControl;
 
+namespace PBD {
+	class Downloader;
+}
+
+namespace ARDOUR {
+	class RemoteResourceInfo;
+}
+
 class SessionDialog : public ArdourDialog
 {
 public:
@@ -95,6 +103,7 @@ private:
 	ArdourWidgets::ArdourButton new_button;
 	ArdourWidgets::ArdourButton recent_button;
 	ArdourWidgets::ArdourButton existing_button;
+	ArdourWidgets::ArdourButton demo_button;
 	ArdourWidgets::ArdourButton prefs_button;
 
 	Gtk::ComboBoxText  timebase_chooser;
@@ -104,8 +113,10 @@ private:
 	void new_button_choice_action ();
 	void recent_button_choice_action ();
 	void existing_button_choice_action ();
+	void demo_button_choice_action ();
 
 	bool open_button_pressed (GdkEventButton*);
+	bool cancel_button_pressed (GdkEventButton*);
 
 	Gtk::Table _open_table;
 
@@ -180,7 +191,7 @@ private:
 	void setup_new_session_page ();
 	Gtk::Entry new_name_entry;
 	bool new_name_was_edited;
-	bool new_name_edited (GdkEventKey*);
+	bool name_edited (GdkEventKey*);
 
 	void setup_untitled_session ();
 
@@ -231,6 +242,55 @@ private:
 	/* meta-template */
 	static uint32_t meta_master_bus_profile (std::string script);
 
+	/* Demo sessions */
+	struct DemoColumns : public Gtk::TreeModelColumnRecord {
+		DemoColumns () {
+			add (name);
+			add (size);
+			add (url);
+			add (file);
+			add (downloader);
+			add (downloading);
+			add (progress);
+			add (status);
+			add (description);
+		}
+		Gtk::TreeModelColumn<std::string>      name;
+		Gtk::TreeModelColumn<std::string>      size;
+		Gtk::TreeModelColumn<std::string>      url;
+		Gtk::TreeModelColumn<std::string>      file;
+		Gtk::TreeModelColumn<PBD::Downloader*> downloader;
+		Gtk::TreeModelColumn<bool>             downloading;
+		Gtk::TreeModelColumn<int>              progress;
+		Gtk::TreeModelColumn<int>              status;
+		Gtk::TreeModelColumn<std::string>      description;
+	};
+
+	Gtk::VBox                    demo_vbox;
+	Gtk::ScrolledWindow          demo_scroller;
+	Gtk::TreeView                demo_display;
+	Glib::RefPtr<Gtk::ListStore> demo_model;
+	DemoColumns                  demo_columns;
+	Gtk::FileChooserButton       demo_folder_chooser;
+	Gtk::Entry                   demo_name_entry;
+	Gtk::TextView                demo_description;
+	bool                         demo_name_was_edited;
+	bool                         download_active;
+	bool                         cancel_download;
+	PBD::ScopedConnection        demo_download_connection;
+
+	void setup_demo_sessions ();
+	void query_demo_sessions ();
+	void demo_session_selected ();
+	void demo_name_changed ();
+	void demo_name_activated ();
+	void demo_row_activated (const Gtk::TreePath& path, Gtk::TreeViewColumn* col);
+	void add_demo_session (ARDOUR::RemoteResourceInfo const &);
+	bool demo_button_press (GdkEventButton*);
+	bool demo_dl_timer_callback (PBD::Downloader*, Gtk::TreePath);
+	bool deploy_demo_session ();
+	void set_downloading (bool);
+
 	/* always there */
 
 	Glib::RefPtr<Pango::Layout> layout;
@@ -247,6 +307,7 @@ private:
 	Glib::RefPtr<Gtk::Action> new_session_action;
 	Glib::RefPtr<Gtk::Action> recent_session_action;
 	Glib::RefPtr<Gtk::Action> existing_session_action;
+	Glib::RefPtr<Gtk::Action> demo_session_action;
 };
 
 #endif /* __gtk2_ardour_session_dialog_h__ */
