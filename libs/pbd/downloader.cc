@@ -177,7 +177,10 @@ Downloader::download ()
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, this);
 	CURLcode res = curl_easy_perform (curl);
 
-	if (res == CURLE_OK) {
+	long int rstatus;
+	curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &rstatus);
+
+	if (res == CURLE_OK && rstatus == 200) {
 		_status = 1;
 	} else {
 		_status = -1;
@@ -186,6 +189,9 @@ Downloader::download ()
 	if (file) {
 		fclose (file);
 		file = 0;
+	}
+	if (_status < 0) {
+		::g_unlink (file_path.c_str());
 	}
 }
 
