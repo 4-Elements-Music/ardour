@@ -90,7 +90,10 @@ Downloader::~Downloader ()
 int
 Downloader::start ()
 {
-	file_path = Glib::build_filename (destdir, Glib::path_get_basename (url));
+	std::string filename = Glib::path_get_basename (url);
+	char* basename = curl_unescape (filename.c_str(), filename.length ());
+	file_path = Glib::build_filename (destdir, basename);
+	curl_free (basename);
 
 	if (!(file = fopen (file_path.c_str(), "w"))) {
 		return -1;
