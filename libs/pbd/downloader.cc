@@ -71,12 +71,12 @@ Downloader::Downloader (string const & u, string const & dir)
 {
 	if (!Glib::file_test (destdir, Glib::FILE_TEST_EXISTS)) {
 		if (g_mkdir_with_parents (destdir.c_str(), 0700) != 0) {
-			error << string_compose (_("Could not create clip library dir %1 (%2)"), destdir, strerror(errno)) << endmsg;
+			error << string_compose (_("Could not create download target directory %1 (%2)"), destdir, strerror(errno)) << endmsg;
 			throw failed_constructor();
 		}
 	} else {
 		if (!Glib::file_test (destdir, Glib::FILE_TEST_IS_DIR)) {
-			error << string_compose (_("Clip library dir (%1) is not a directory"), destdir) << endmsg;
+			error << string_compose (_("Download destination (%1) is not a directory"), destdir) << endmsg;
 			throw failed_constructor();
 		}
 	}
