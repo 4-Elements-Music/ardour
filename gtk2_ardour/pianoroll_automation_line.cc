@@ -33,6 +33,7 @@ PianorollAutomationLine::PianorollAutomationLine (const std::string&            
 {
 	_drag_base->set_data ("line", this);
 	_drag_base->Event.connect (sigc::mem_fun (*this, &PianorollAutomationLine::base_event_handler));
+	std::cerr << "new AL, events connected via " << _drag_base->name << std::endl;
 }
 
 bool

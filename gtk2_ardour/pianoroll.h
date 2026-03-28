@@ -104,6 +104,7 @@ class Pianoroll : public CueEditor
 	bool canvas_cue_start_event (GdkEvent* event, ArdourCanvas::Item*);
 	bool canvas_cue_end_event (GdkEvent* event, ArdourCanvas::Item*);
 	bool canvas_bg_event (GdkEvent* event, ArdourCanvas::Item*);
+	bool automation_group_event (GdkEvent* event, Evoral::Parameter);
 
 	int32_t get_grid_beat_divisions (Editing::GridType gt) const { return 1; }
 	int32_t get_grid_music_divisions (Editing::GridType gt) const { return 1; }
@@ -163,6 +164,18 @@ class Pianoroll : public CueEditor
 
 	void apply_note_range (uint8_t lowest, uint8_t highest);
 
+	struct AutomationLane {
+		AutomationLane (std::string const &, ArdourCanvas::Item*, uint32_t nth);
+
+		double height() const { return group->height(); }
+
+		ArdourCanvas::Rectangle* group;
+		ArdourCanvas::Text* label;
+	};
+
+	void add_automation_lane (Evoral::Parameter const & param);
+	void remove_automation_lane (Evoral::Parameter const & param);
+
   protected:
 	Temporal::timepos_t snap_to_grid (Temporal::timepos_t const & start,
 	                                  Temporal::RoundMode   direction,
@@ -189,7 +202,7 @@ class Pianoroll : public CueEditor
 	void session_going_away ();
 
 	void set_color_mode (ARDOUR::ColorMode);
-	void motion_track (GdkEventMotion*);
+	void motion_track (ArdourCanvas::Duple const &);
 
  private:
 	ArdourCanvas::Ruler*     bbt_ruler;
@@ -209,23 +222,13 @@ class Pianoroll : public CueEditor
 	ArdourWidgets::ArdourDropdown policy_dropdown;
 	ArdourWidgets::ArdourDropdown colors_dropdown;
 
-	ArdourWidgets::ArdourButton* layered_automation_button;
-	bool layered_automation;
-	void layered_automation_button_clicked();
+	bool no_toggle;
+	void toggle_automation (Evoral::Parameter param);
+	void add_single_controller_item (Gtk::Menu_Helpers::MenuList&, int, const std::string&);
+	void add_multi_controller_item (Gtk::Menu_Helpers::MenuList&, uint16_t, int, const std::string&);
 
-	ControllerControls* velocity_button;
-	ControllerControls* bender_button;
-	ControllerControls* pressure_button;
-	ControllerControls* expression_button;
-	ControllerControls* modulation_button;
-#ifdef PIANOROLL_USER_BUTTONS
-	ControllerControls cc_dropdown1;
-	ControllerControls cc_dropdown2;
-	ControllerControls cc_dropdown3;
-#endif
-	typedef std::map<ControllerControls*,Evoral::Parameter> ParameterButtonMap;
-	ParameterButtonMap parameter_button_map;
-	void rebuild_parameter_button_map ();
+	typedef std::map<Evoral::Parameter, AutomationLane*> AutomationLanes;
+	AutomationLanes automation_lanes;
 
 	PianorollMidiBackground* bg;
 
@@ -258,7 +261,6 @@ class Pianoroll : public CueEditor
 	BBTMetric bbt_metric;
 
 	PBD::ScopedConnectionList view_connections;
-	sigc::connection automation_connection;
 	void maybe_update ();
 	void trigger_prop_change (PBD::PropertyChange const &);
 
@@ -279,13 +281,7 @@ class Pianoroll : public CueEditor
 
 	sigc::signal<void> NoteModeChanged;
 
-	void automation_state_changed ();
-
 	void point_selection_changed ();
-
-	void add_single_controller_item (Gtk::Menu_Helpers::MenuList& ctl_items, int ctl, const std::string& name, ArdourWidgets::MetaButton*);
-	void add_multi_controller_item (Gtk::Menu_Helpers::MenuList& ctl_items, uint16_t channels, int ctl, const std::string& name, ArdourWidgets::MetaButton*);
-	void reset_user_cc_choice (std::string, Evoral::Parameter param, ArdourWidgets::MetaButton*);
 
 	bool ignore_channel_changes;
 	void visible_channel_changed ();
@@ -325,4 +321,7 @@ class Pianoroll : public CueEditor
 	void update_pitch_colors ();
 
 	CrossCursor* xcursor;
+
+	void partition_height ();
+	Evoral::Parameter automation_by_y (double y);
 };

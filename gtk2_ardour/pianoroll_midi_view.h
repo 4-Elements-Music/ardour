@@ -29,6 +29,7 @@
 #include "ardour/types.h"
 
 #include "midi_view.h"
+#include "pianoroll.h"
 
 class VelocityDisplay;
 class PianorollAutomationLine;
@@ -60,25 +61,15 @@ class PianorollMidiView : public MidiView
 	void ghost_add_note (NoteBase*);
 	void ghost_sync_selection (NoteBase*);
 
-	void toggle_visibility (Evoral::Parameter const & param);
 	void remove_all_automation ();
-	void hide_all_automation ();
 	void swap_automation_channel (int);
-	void set_active_automation (Evoral::Parameter const &);
-	void unset_active_automation ();
-	bool is_active_automation (Evoral::Parameter const &) const;
-	bool is_visible_automation (Evoral::Parameter const &) const;
-	size_t n_visible_automation () const;
-
-	AutomationLine* active_automation_line() const;
-	ArdourCanvas::Duple automation_group_position() const;
 
 	ArdourCanvas::Item* drag_group() const;
 
 	std::list<SelectableOwner*> selectable_owners();
 	MergeableLine* make_merger ();
 
-	bool automation_rb_click (GdkEvent*, Temporal::timepos_t const &);
+	bool automation_rb_click (GdkEvent*, Temporal::timepos_t const &, Evoral::Parameter);
 	bool velocity_rb_click (GdkEvent*, Temporal::timepos_t const &);
 	void line_drag_click (GdkEvent*, Temporal::timepos_t const &);
 
@@ -96,42 +87,45 @@ class PianorollMidiView : public MidiView
 
 	void cut_copy_clear (::Selection& selection, Editing::CutCopyOp);
 
+	void add_automation_lane (Evoral::Parameter const &, Pianoroll::AutomationLane& lane_parent);
+	void remove_automation_lane (Evoral::Parameter const &, Pianoroll::AutomationLane& lane_parent);
+	void set_active_automation (Evoral::Parameter const &);
+	void partition_height ();
+
   protected:
 	bool scroll (GdkEventScroll* ev);
 
 	ArdourCanvas::Item* _noscroll_parent;
-	ArdourCanvas::Rectangle* automation_group;
 	ArdourCanvas::Text* overlay_text;
 
 	typedef std::shared_ptr<PianorollAutomationLine>  CueAutomationLine;
 	typedef std::shared_ptr<ARDOUR::AutomationControl>  CueAutomationControl;
 
-	struct AutomationDisplayState {
+	struct AutomationLane {
 
-		AutomationDisplayState (CueAutomationControl ctl, CueAutomationLine ln, bool vis)
-			: control (ctl), line (ln), velocity_display (nullptr), visible (vis) {}
-		AutomationDisplayState (VelocityDisplay& vdisp, bool vis)
-			: control (nullptr), line (nullptr), velocity_display (&vdisp), visible (vis) {}
+		AutomationLane (CueAutomationControl ctl, CueAutomationLine ln, bool vis, Pianoroll::AutomationLane& par)
+			: control (ctl), line (ln), velocity_display (nullptr), parent (par) {}
+		AutomationLane (VelocityDisplay& vdisp, bool vis, Pianoroll::AutomationLane& par)
+			: control (nullptr), line (nullptr), velocity_display (&vdisp), parent (par) {}
 
-		~AutomationDisplayState();
+		~AutomationLane();
 
 		CueAutomationControl control;
 		CueAutomationLine line;
 		VelocityDisplay* velocity_display;
-		bool visible;
+		Pianoroll::AutomationLane& parent;
 
-		void hide ();
-		void show ();
 		void set_sensitive (bool);
 		void set_height (double);
 	};
 
-	typedef std::map<Evoral::Parameter, AutomationDisplayState> CueAutomationMap;
-
+	typedef std::map<Evoral::Parameter, AutomationLane*> CueAutomationMap;
 	CueAutomationMap automation_map;
-	AutomationDisplayState* active_automation;
 
-	VelocityDisplay* velocity_display;
+	AutomationLane* automation_lane_by_param (Evoral::Parameter const &);
+
+	VelocityDisplay*  velocity_display;
+	Evoral::Parameter active_automation_parameter;
 
 	std::shared_ptr<Temporal::TempoMap const> tempo_map;
 	ArdourCanvas::Rectangle* event_rect;
@@ -141,15 +135,11 @@ class PianorollMidiView : public MidiView
 
 	double _height;
 
-	AutomationDisplayState* find_or_create_automation_display_state (Evoral::Parameter const &);
-	void internal_set_active_automation (AutomationDisplayState&);
-
 	bool midi_canvas_group_event (GdkEvent*);
 	bool automation_group_event (GdkEvent*);
 	Gtkmm2ext::Color line_color_for (Evoral::Parameter const &);
 
 	void reset_width_dependent_items (double pixel_width);
-	bool have_visible_automation () const;
 
 	void cut_copy_clear_one (AutomationLine& line, ::Selection& selection, Editing::CutCopyOp op);
 	void cut_copy_points (Editing::CutCopyOp op, Temporal::timepos_t const & earliest_time);
