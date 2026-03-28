@@ -357,5 +357,6 @@ Rectangle::dump (std::ostream & o) const
 {
 	Item::dump (o);
 
-	o << _canvas->indent() << " outline: w " << outline_width() << " color " << outline_color() << " what 0x" << std::hex << _outline_what << std::dec << endl;
+	o << _canvas->indent() << " outline: w " << outline_width() << " color 0x" << std::hex << outline_color() << " what 0x" << _outline_what << std::dec << endl;
+	o << _canvas->indent() << " fill  " << _fill << " color 0x " << std::hex << fill_color() << std::dec << endl;
 }
