@@ -72,3 +72,21 @@ CrossCursor::set_line_width (double w)
 {
 	_line_width = w;
 }
+
+void
+CrossCursor::show ()
+{
+	_vline1.show ();
+	_vline2.show ();
+	_hline1.show ();
+	_hline2.show ();
+}
+
+void
+CrossCursor::hide ()
+{
+	_vline1.hide ();
+	_vline2.hide ();
+	_hline1.hide ();
+	_hline2.hide ();
+}

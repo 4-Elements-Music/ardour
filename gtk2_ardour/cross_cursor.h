@@ -40,6 +40,8 @@ class CrossCursor
 	void set_position (ArdourCanvas::Duple const &);
 	void set_line_width (double);
 	void set_outline_color (Gtkmm2ext::Color);
+	void show ();
+	void hide ();
 
   private:
 	double _line_width;
