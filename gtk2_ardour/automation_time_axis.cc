@@ -968,7 +968,6 @@ AutomationTimeAxisView::propagate_time_selection () const
 void
 AutomationTimeAxisView::entered()
 {
-	std::cerr << "in\n";
 	if (_line) {
 		_line->track_entered();
 	}
@@ -978,7 +977,6 @@ AutomationTimeAxisView::entered()
 void
 AutomationTimeAxisView::exited ()
 {
-	std::cerr << "out\n";
 	if (_line) {
 		_line->track_exited();
 	}

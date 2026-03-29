@@ -190,10 +190,8 @@ Pianoroll::toggle_automation (Evoral::Parameter param)
 	}
 
 	if (automation_lanes.find (param) == automation_lanes.end()){
-		std::cerr << "toggle, add " << param << std::endl;
 		add_automation_lane (param);
 	} else {
-		std::cerr << "toggle, remove " << param << std::endl;
 		remove_automation_lane (param);
 	}
 }
@@ -325,7 +323,6 @@ Pianoroll::pack_outer (Gtk::Box& box)
 void
 Pianoroll::set_color_mode (ARDOUR::ColorMode cm)
 {
-	std::cerr << "color mode set to " << cm << " current " << _color_mode << std::endl;
 	if (_color_mode == cm) {
 		return;
 	}
@@ -1599,7 +1596,6 @@ Pianoroll::set_region (std::shared_ptr<ARDOUR::Region> region)
 	for (auto & [param,lane] : automation_lanes) {
 		(void) lane->group->set_data ("linemerger", nullptr);
 	}
-	std::cerr << "Unset linemerger\n";
 
 	_active_view = nullptr;
 	view_connections.drop_connections ();
