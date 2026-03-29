@@ -1935,33 +1935,40 @@ Pianoroll::select_all_within (Temporal::timepos_t const & start, Temporal::timep
 {
 	EC_LOCAL_TEMPO_SCOPE;
 
+	if (_editing_policy == ActiveView && !_active_view) {
+		return;
+	}
+
 	std::list<Selectable*> found;
 
-	if (!_active_view) {
-		return;
+	AutomationLane* lane (nullptr);
+	Evoral::Parameter param (NullAutomation);
+	ArdourCanvas::Duple d (0., y0);
+
+	for (auto & [p,l] : automation_lanes) {
+		ArdourCanvas::Rect r (l->group->get().translate (l->group->position()));
+		if (r.contains (d)) {
+			lane = l;
+			param = p;
+			break;
+		}
 	}
 
-#if 0
-	AutomationLine* al = _active_view->active_automation_line();
-
-	if (!al) {
+	if (param.type() == NullAutomation) {
 		return;
 	}
-#endif
 
 	double topfrac;
 	double botfrac;
 
-#if 0
-
 	/* translate y0 and y1 to use the top of the automation area as the * origin */
 
-	double automation_origin = _active_view->automation_group_position().y;
+	double automation_origin = lane->group->position().y;
 
 	y0 -= automation_origin;
 	y1 -= automation_origin;
 
-	if (y0 < 0. && al->height() <= y1) {
+	if (y0 < 0. && lane->height() <= y1) {
 
 		/* _y_position is below top, mybot is above bot, so we're fully
 		   covered vertically.
@@ -1974,16 +1981,32 @@ Pianoroll::select_all_within (Temporal::timepos_t const & start, Temporal::timep
 
 		/* top and bot are within _y_position .. mybot */
 
-		topfrac = 1.0 - (y0 / al->height());
-		botfrac = 1.0 - (y1 / al->height());
+		topfrac = 1.0 - (y0 / lane->height());
+		botfrac = 1.0 - (y1 / lane->height());
 
 	}
 
-	al->get_selectables (start, end, botfrac, topfrac, found);
-#endif
+	if (_editing_policy == ActiveView) {
+
+		_active_view->get_selectables (param, start, end, botfrac, topfrac, found);
+
+	} else if (_editing_policy == AllViews) {
+
+		for (auto & [region,view] : region_view_map) {
+			view->get_selectables (param, start, end, botfrac, topfrac, found);
+		}
+	}
+
 	if (found.empty()) {
-		_active_view->clear_selection ();
-		return;
+		if (_editing_policy == ActiveView) {
+			_active_view->clear_selection ();
+		}
+
+	} else if (_editing_policy == AllViews) {
+
+		for (auto & [region,view] : region_view_map) {
+			view->clear_selection ();
+		}
 	}
 
 	if (preserve_if_selected && op != SelectionToggle) {

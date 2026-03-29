@@ -371,11 +371,13 @@ void
 PianorollMidiView::set_active_automation (Evoral::Parameter const & param)
 {
 	AutomationLane* lane;
+	PointSelection empty;
 
 	if (active_automation_parameter.type() != NullAutomation) {
 		lane = automation_lane_by_param (active_automation_parameter);
 		if (lane && lane->line) {
 			lane->line->track_exited ();
+			lane->line->set_selected_points (empty);
 		}
 	}
 
@@ -756,4 +758,16 @@ PianorollMidiView::set_region (std::shared_ptr<MidiRegion> mr)
 {
 	MidiView::set_region (mr);
 	remove_all_automation ();
+}
+
+void
+PianorollMidiView::get_selectables (Evoral::Parameter const & param, Temporal::timepos_t const & start, Temporal::timepos_t  const & end, double x, double y, std::list<Selectable*>& results, bool within)
+{
+	AutomationLane* lane = automation_lane_by_param (param);
+
+	if (!lane || !lane->line) {
+		return;
+	}
+
+	return lane->line->get_selectables (start, end, x, y, results, within);
 }

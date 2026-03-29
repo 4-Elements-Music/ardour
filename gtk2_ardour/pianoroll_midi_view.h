@@ -92,6 +92,8 @@ class PianorollMidiView : public MidiView
 	void set_active_automation (Evoral::Parameter const &);
 	void partition_height ();
 
+	void get_selectables (Evoral::Parameter const & param, Temporal::timepos_t const & start, Temporal::timepos_t  const & end, double x, double y, std::list<Selectable*>& sl, bool within = false);
+
   protected:
 	bool scroll (GdkEventScroll* ev);
 
