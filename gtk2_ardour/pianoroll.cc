@@ -641,8 +641,8 @@ Pianoroll::partition_height ()
 {
 	double timebars = n_timebars * timebar_height;
 	double data_height = _visible_canvas_height - timebars;
-	double note_area_height = automation_lanes.empty() ? data_height : ceil (2 * data_height / 3.);
-	double automation_height = ceil (data_height - note_area_height);
+	double note_area_height = automation_lanes.empty() ? data_height : floor (2 * data_height / 3.);
+	double automation_height = floor (data_height - note_area_height);
 
 	bg->set_size (_visible_canvas_width, note_area_height);
 	prh->set (ArdourCanvas::Rect (0, 0, prh->x1(), note_area_height));
@@ -655,13 +655,13 @@ Pianoroll::partition_height ()
 	}
 
 	double ay = note_area_height;
-	double per_lane = floor (automation_height / automation_lanes.size());
+	double per_lane = floor (automation_height / automation_lanes.size()) - 2;
 
 	for (auto & [param, lane] : automation_lanes) {
 		lane->group->set_position (ArdourCanvas::Duple (0., ay));
-		lane->group->set (ArdourCanvas::Rect (0., 0., 100000000000000., per_lane));
+		lane->group->set (ArdourCanvas::Rect (0., 0., ArdourCanvas::COORD_MAX, per_lane));
 		lane->label->set_position (ArdourCanvas::Duple (8, ay + 18));
-		ay += per_lane;
+		ay += per_lane + 2;
 	}
 
 	for (auto & [region,view] : region_view_map) {
@@ -1696,17 +1696,13 @@ Pianoroll::AutomationLane::AutomationLane (std::string const & txt, ArdourCanvas
 	} else {
 		Gtkmm2ext::HSV hsv (UIConfiguration::instance().color ("midi automation track fill"));
 		hsv = hsv.lighter (0.05);
-		std::cerr << "darker color is 0x" << std::hex << hsv.color() << std::dec << std::endl;
 		group->set_fill_color (hsv.color());
 	}
-	group->set_outline_color (0xff00ffff);
-	group->set_outline_width (1);
 	group->set_outline (false);
-	//group->set_outline_what (Rectangle::BOTTOM);
 	CANVAS_DEBUG_NAME (group, std::string ("pr auto group for ") + txt);
 
 	label->set (txt);
-	label->set_fill_color (Gtkmm2ext::contrasting_text_color (UIConfiguration::instance().color (X_("gtk_background"))));
+	label->set_color (UIConfiguration::instance().color (X_("gtk_foreground")));
 	label->set_font_description (UIConfiguration::instance().get_SmallFont());
 }
 
@@ -1760,14 +1756,12 @@ Pianoroll::automation_group_event (GdkEvent* event, Evoral::Parameter param)
 {
 	switch (event->type) {
 	case GDK_ENTER_NOTIFY:
-		std::cerr << "enter automation for " << EventTypeMap::instance().to_symbol (param) << std::endl;
 		for (auto & [region,view] : region_view_map) {
 			view->set_active_automation (param);
 		}
 		break;
 	case GDK_LEAVE_NOTIFY:
 		if (event->crossing.detail != GDK_NOTIFY_INFERIOR) {
-			std::cerr << "leave automation for " << EventTypeMap::instance().to_symbol (param) << std::endl;
 			for (auto & [region,view] : region_view_map) {
 				view->set_active_automation (param);
 			}

@@ -373,7 +373,7 @@ PianorollMidiView::set_active_automation (Evoral::Parameter const & param)
 	AutomationLane* lane;
 
 	if (active_automation_parameter.type() != NullAutomation) {
-		lane = automation_lane_by_param (param);
+		lane = automation_lane_by_param (active_automation_parameter);
 		if (lane && lane->line) {
 			lane->line->track_exited ();
 		}
@@ -412,11 +412,10 @@ PianorollMidiView::add_automation_lane (Evoral::Parameter const & param, Pianoro
 			/* Create and add to automation display map */
 
 			velocity_display = new PianorollVelocityDisplay (editing_context(), midi_context(), *this, *lane_parent.group, 0x312244ff);
-			automation_map.insert (std::make_pair (param, new AutomationLane (*velocity_display, false, lane_parent)));
-
 			for (auto & ev : _events) {
 				velocity_display->add_note (ev.second);
 			}
+			lane = new AutomationLane (*velocity_display, false, lane_parent);
 		}
 
 	} else {
@@ -436,11 +435,11 @@ PianorollMidiView::add_automation_lane (Evoral::Parameter const & param, Pianoro
 		                                                     ac->desc()));
 
 		line->set_insensitive_line_color (line_color_for (param));
-
 		lane = new AutomationLane (ac, line, false, lane_parent);
-
-		automation_map.insert (std::make_pair (param, lane));
 	}
+
+	automation_map.insert (std::make_pair (param, lane));
+	lane->set_height (lane->parent.group->height());
 }
 
 void
@@ -523,7 +522,7 @@ PianorollMidiView::AutomationLane::set_height (double h)
 	if (velocity_display) {
 		// velocity_display->set_height (h);
 	} else if (line) {
-		line->set_height (h);
+		line->set_height (h - 4);
 	}
 }
 
