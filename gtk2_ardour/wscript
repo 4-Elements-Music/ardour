@@ -61,6 +61,7 @@ gtk2_ardour_sources = [
         'big_transport_window.cc',
         'boundary.cc',
         'bundle_manager.cc',
+        'chord_box.cc',
         'clock_group.cc',
         'color_theme_manager.cc',
         'configinfo.cc',
