@@ -80,36 +80,6 @@ ArdourDropdown::on_button_press_event (GdkEventButton* ev)
 	return true;
 }
 
-void
-ArdourDropdown::set_active (int c)
-{
-	int n = c;
-	for (auto & item : _menu.items()) {
-		if (0 == n--) {
-			if (&item != _menu.get_active()) {
-				_menu.set_active (c);
-				_menu.activate_item (item);
-				set_text (item.get_label());
-				StateChanged ();
-			}
-			break;
-		}
-	}
-}
-
-void
-ArdourDropdown::set_active (int c)
-{
-	int n = c;
-	for (auto& i : _menu.items()) {
-		if (0 == n--) {
-			_menu.set_active (c);
-			_menu.activate_item (i);
-			break;
-		}
-	}
-}
-
 int
 ArdourDropdown::get_active_row_number () const
 {
