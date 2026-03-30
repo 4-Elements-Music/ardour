@@ -1702,6 +1702,12 @@ Pianoroll::AutomationLane::AutomationLane (std::string const & txt, ArdourCanvas
 	label->set_font_description (UIConfiguration::instance().get_SmallFont());
 }
 
+Pianoroll::AutomationLane::~AutomationLane ()
+{
+	delete group;
+	delete label;
+}
+
 void
 Pianoroll::add_automation_lane (Evoral::Parameter const & param)
 {
@@ -1735,9 +1741,6 @@ Pianoroll::remove_automation_lane (Evoral::Parameter const & param)
 	}
 
 	AutomationLane* lane = existing->second;
-
-	delete existing->second->group;
-	delete existing->second;
 	automation_lanes.erase (existing);
 
 	partition_height ();
@@ -1745,6 +1748,8 @@ Pianoroll::remove_automation_lane (Evoral::Parameter const & param)
 	for (auto & [region,view] : region_view_map) {
 		view->remove_automation_lane (param, *lane);
 	}
+
+	delete lane;
 }
 
 bool

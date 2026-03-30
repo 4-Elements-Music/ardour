@@ -56,7 +56,6 @@ PianorollMidiView::PianorollMidiView (std::shared_ptr<ARDOUR::MidiTrack> mt,
 	: MidiView (mt, parent, ec, bg)
 	, _noscroll_parent (&noscroll_parent)
 	, overlay_text (nullptr)
-	, velocity_display (nullptr)
 	, active_automation_parameter (NullAutomation)
 	, _height (0.)
 {
@@ -112,8 +111,6 @@ PianorollMidiView::~PianorollMidiView ()
 	for (auto & [param,lane] : automation_map) {
 		delete lane;
 	}
-
-	delete velocity_display;
 }
 
 bool
@@ -137,10 +134,20 @@ PianorollMidiView::midi_canvas_group_event (GdkEvent* ev)
 }
 
 void
+PianorollMidiView::set_sensitive (bool yn)
+{
+	MidiView::set_sensitive (yn);
+	for (auto & [param,lane] : automation_map) {
+		lane->set_sensitive (yn);
+	}
+}
+
+void
 PianorollMidiView::set_height (double h)
 {
-	_height = h;
+	/* lane heights are set in ::partition_height() */
 
+	_height = h;
 	view_changed ();
 }
 
@@ -219,18 +226,20 @@ PianorollMidiView::reset_width_dependent_items (double pixel_width)
 void
 PianorollMidiView::clear_ghost_events ()
 {
-	if (velocity_display) {
-		velocity_display->clear ();
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->clear ();
 	}
 }
 
 void
 PianorollMidiView::ghosts_model_changed ()
 {
-	if (velocity_display) {
-		velocity_display->clear();
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->clear();
 		for (auto & ev : _events) {
-			velocity_display->add_note (ev.second);
+			lane->velocity_display->add_note (ev.second);
 		}
 	}
 }
@@ -238,32 +247,36 @@ PianorollMidiView::ghosts_model_changed ()
 void
 PianorollMidiView::ghosts_view_changed ()
 {
-	if (velocity_display) {
-		velocity_display->redisplay();
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->redisplay();
 	}
 }
 
 void
 PianorollMidiView::ghost_remove_note (NoteBase* nb)
 {
-	if (velocity_display) {
-		velocity_display->remove_note (nb);
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->remove_note (nb);
 	}
 }
 
 void
 PianorollMidiView::ghost_add_note (NoteBase* nb)
 {
-	if (velocity_display) {
-		velocity_display->add_note (nb);
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->add_note (nb);
 	}
 }
 
 void
 PianorollMidiView::ghost_sync_selection (NoteBase* nb)
 {
-	if (velocity_display) {
-		velocity_display->note_selected (nb);
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->note_selected (nb);
 	}
 }
 
@@ -271,8 +284,9 @@ void
 PianorollMidiView::update_sustained (Note* n)
 {
 	MidiView::update_sustained (n);
-	if (velocity_display) {
-		velocity_display->update_note (n);
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->update_note (n);
 	}
 }
 
@@ -280,8 +294,9 @@ void
 PianorollMidiView::update_hit (Hit* h)
 {
 	MidiView::update_hit (h);
-	if (velocity_display) {
-		velocity_display->update_note (h);
+	AutomationLane* lane = automation_lane_by_param (MidiVelocityAutomation);
+	if (lane) {
+		lane->velocity_display->update_note (h);
 	}
 }
 
@@ -289,12 +304,14 @@ void
 PianorollMidiView::swap_automation_channel (int new_channel)
 {
 	std::vector<Evoral::Parameter> new_params;
-
+	std::vector<Pianoroll::AutomationLane*> parents;
 	/* Make a note of what was visible, but use the new channel */
 
 	for (auto & [old_param,lane] : automation_map) {
 		Evoral::Parameter param (old_param.type(), new_channel, old_param.id());
 		new_params.push_back (param);
+		parents.push_back (&lane->parent);
+		delete lane;
 	}
 
 	/* Drop the old */
@@ -302,11 +319,13 @@ PianorollMidiView::swap_automation_channel (int new_channel)
 	automation_map.clear ();
 
 	/* Create the new */
-#if 0
+
+	auto par = parents.begin();
+
 	for (auto const & p : new_params) {
-		toggle_visibility (p);
+		add_automation_lane (p, **par);
+		++par;
 	}
-#endif
 }
 
 Gtkmm2ext::Color
@@ -338,10 +357,6 @@ PianorollMidiView::remove_automation_lane (Evoral::Parameter const & param, Pian
 	auto existing = automation_map.find (param);
 	if (existing == automation_map.end()) {
 		return;
-	}
-
-	if (param.type() == MidiVelocityAutomation) {
-		/* XXX something */
 	}
 
 	delete existing->second;
@@ -409,16 +424,14 @@ PianorollMidiView::add_automation_lane (Evoral::Parameter const & param, Pianoro
 
 	if (param.type() == MidiVelocityAutomation) {
 
-		if (!velocity_display) {
+		/* Create and add to automation display map */
 
-			/* Create and add to automation display map */
-
-			velocity_display = new PianorollVelocityDisplay (editing_context(), midi_context(), *this, *lane_parent.group, 0x312244ff);
-			for (auto & ev : _events) {
-				velocity_display->add_note (ev.second);
-			}
-			lane = new AutomationLane (*velocity_display, false, lane_parent);
+		VelocityDisplay* velocity_display = new PianorollVelocityDisplay (editing_context(), midi_context(), *this, *lane_parent.group, 0x312244ff);
+		for (auto & ev : _events) {
+			velocity_display->add_note (ev.second);
 		}
+
+		lane = new AutomationLane (*velocity_display, false, lane_parent);
 
 	} else {
 
@@ -452,8 +465,6 @@ PianorollMidiView::remove_all_automation ()
 	}
 
 	automation_map.clear ();
-	delete velocity_display;
-	velocity_display = nullptr;
 }
 
 std::list<SelectableOwner*>
@@ -505,16 +516,18 @@ PianorollMidiView::line_drag_click (GdkEvent* event, Temporal::timepos_t const &
 
 PianorollMidiView::AutomationLane::~AutomationLane()
 {
-	/* We do not own the velocity_display */
+	/* line is managed via a shared_ptr */
+	delete velocity_display;
+	/* we do not own the velocity display */
 }
 
 void
 PianorollMidiView::AutomationLane::set_sensitive (bool yn)
 {
-	if (velocity_display) {
-		velocity_display->set_sensitive (yn);
-	} else if (line) {
+	if (line) {
 		line->set_sensitive (yn);
+	} else if (velocity_display) {
+		velocity_display->set_sensitive (yn);
 	}
 }
 
@@ -526,17 +539,6 @@ PianorollMidiView::AutomationLane::set_height (double h)
 	} else if (line) {
 		line->set_height (h - 4);
 	}
-}
-
-void
-PianorollMidiView::automation_entry ()
-{
-}
-
-
-void
-PianorollMidiView::automation_leave ()
-{
 }
 
 void

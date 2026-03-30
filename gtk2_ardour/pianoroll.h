@@ -166,6 +166,7 @@ class Pianoroll : public CueEditor
 
 	struct AutomationLane {
 		AutomationLane (std::string const &, ArdourCanvas::Item*, uint32_t nth);
+		~AutomationLane ();
 
 		double height() const { return group->height(); }
 

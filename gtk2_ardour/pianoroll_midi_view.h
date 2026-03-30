@@ -73,9 +73,6 @@ class PianorollMidiView : public MidiView
 	bool velocity_rb_click (GdkEvent*, Temporal::timepos_t const &);
 	void line_drag_click (GdkEvent*, Temporal::timepos_t const &);
 
-	void automation_entry();
-	void automation_leave ();
-
 	void point_selection_changed ();
 	void clear_selection ();
 
@@ -93,6 +90,7 @@ class PianorollMidiView : public MidiView
 	void partition_height ();
 
 	void get_selectables (Evoral::Parameter const & param, Temporal::timepos_t const & start, Temporal::timepos_t  const & end, double x, double y, std::list<Selectable*>& sl, bool within = false);
+	void set_sensitive (bool yn);
 
   protected:
 	bool scroll (GdkEventScroll* ev);
@@ -125,8 +123,6 @@ class PianorollMidiView : public MidiView
 	CueAutomationMap automation_map;
 
 	AutomationLane* automation_lane_by_param (Evoral::Parameter const &);
-
-	VelocityDisplay*  velocity_display;
 	Evoral::Parameter active_automation_parameter;
 
 	std::shared_ptr<Temporal::TempoMap const> tempo_map;
