@@ -62,7 +62,7 @@ PianorollWindow::set (std::shared_ptr<MidiTrack> track, std::shared_ptr<MidiRegi
 
 	delete region_editor;
 	region_editor = new RegionEditor (pianoroll->session(), region);
-	hpacker.pack_start (*region_editor, false, false);
+	// hpacker.pack_start (*region_editor, false, false);
 	hpacker.pack_start (pianoroll->contents(), true, true);
 
 	region_editor->show ();
