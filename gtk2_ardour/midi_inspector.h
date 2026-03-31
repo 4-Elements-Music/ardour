@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Paul Davis <paul@linuxaudiosystems.com>
+ * Copyright (C) 2026 Paul Davis <paul@linuxaudiosystems.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,34 +18,17 @@
 
 #pragma once
 
-#include "ardour_window.h"
+#include "ytkmm/box.h"
+#include "ytkmm/expander.h"
 
-#include <ytkmm/box.h>
+class ChordBox;
 
-namespace ARDOUR {
-	class MidiRegion;
-	class MidiTrack;
-	class Track;
-}
-
-class MidiInspector;
-class Pianoroll;
-class RegionEditor;
-
-class PianorollWindow : public ArdourWindow
+class MidiInspector : public Gtk::VBox
 {
-public:
-	PianorollWindow (std::string const & name, ARDOUR::Session&);
-	~PianorollWindow ();
+  public:
+	MidiInspector ();
 
-	void set (std::shared_ptr<ARDOUR::MidiTrack>, std::shared_ptr<ARDOUR::MidiRegion>);
-	bool on_key_press_event (GdkEventKey*);
-	bool on_delete_event (GdkEventAny*);
-	void set_show_source (bool);
-
-private:
-	Gtk::HBox     hpacker;
-	Pianoroll*    pianoroll;
-	RegionEditor* region_editor;
-	MidiInspector* midi_inspector;
+  private:
+	Gtk::Expander chord_expander;
+	ChordBox* chord_box;
 };

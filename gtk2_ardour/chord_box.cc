@@ -22,6 +22,28 @@
 
 using namespace ARDOUR;
 
+struct DoubleButton : public Gtk::HBox
+{
+	DoubleButton (ArdourWidgets::ArdourButton & left, ArdourWidgets::ArdourButton & right);
+};
+
+DoubleButton::DoubleButton (ArdourWidgets::ArdourButton & left, ArdourWidgets::ArdourButton & right)
+{
+	using namespace ArdourWidgets;
+
+	left.set_corner_mask (ArdourButton::LEFT);
+	left.set_border_mask (ArdourButton::HIDE_RIGHT);
+
+	right.set_corner_mask (ArdourButton::RIGHT);
+	right.set_border_mask (ArdourButton::HIDE_LEFT);
+
+	pack_start (left, true, true);
+	pack_start (right, false, false);
+	left.show ();
+	right.show ();
+}
+
+
 ChordBox::ChordBox ()
 	: triad_label (_("3-Note Chords (Triads)"))
 	, tetrad_label (_("4-Note Chords (Tetrads)"))
@@ -113,50 +135,51 @@ ChordBox::build_western ()
 	inversion_table.resize (1, 2);
 	drop_table.resize (2, 2);
 
-	ArdourButton* but;
+	ArdourButton* butl;
+	ArdourButton* butr;
+	DoubleButton* dbut;
 	int row = 0;
 	int col = 0;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("maj"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("maj")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("min"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("min")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("sus4"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("sus4")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("sus2"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("sus2")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("dim"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("dim")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (_("aug"));
-	triad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (_("aug")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
@@ -168,73 +191,73 @@ ChordBox::build_western ()
 	row = 0;
 	col = 0;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("\u0394"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("\u0394")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("7"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("7")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("-6"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("-6")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("-6"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("-6")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("-7/b5"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("-7/b5")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("-j7"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("-j7")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("su4/7"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("su4/7")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("sus2/7"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("sus2/7")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("dim"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("dim")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	but = manage (new ArdourButton);
-	but->set_icon (ArdourIcon::ToolDraw);
-	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text|ArdourButton::VectorIcon));
-	but->set_text (X_("\u0394 #5"));
-	tetrad_table.attach (*but, col, col+1, row, row+1);
+	butl = manage (new ArdourButton (X_("\u0394 #5")));
+	butr = manage (new ArdourButton);
+	butr->set_icon (ArdourIcon::ToolDraw);
+	dbut = new DoubleButton (*butl, *butr);
+	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col = 0;
 	row++;
 
@@ -245,6 +268,8 @@ ChordBox::build_western ()
 
 	row = 0;
 	col = 0;
+
+	ArdourButton* but;
 
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
