@@ -25,14 +25,22 @@
 #include "widgets/ardour_dropdown.h"
 
 #include "ardour/scale.h"
+#include "ardour/chord_provider.h"
 
-class ChordBox : public Gtk::VBox
+namespace ARDOUR {
+	class ScaleProvider;
+}
+
+class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 {
   public:
 	ChordBox ();
 	~ChordBox();
 
 	void set_culture (ARDOUR::MusicalModeCulture);
+	void set_scale_provider (ARDOUR::ScaleProvider const *);
+
+	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const;
 
  private:
 	void pack (Gtk::Widget&);
@@ -65,4 +73,5 @@ class ChordBox : public Gtk::VBox
 
 	int _root;
 	ARDOUR::MusicalModeCulture _culture;
+	ARDOUR::ScaleProvider const * _scale_provider;
 };

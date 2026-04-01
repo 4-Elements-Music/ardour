@@ -37,6 +37,7 @@
 #include "temporal/timeline.h"
 #include "temporal/scope.h"
 
+#include "ardour/chord_provider.h"
 #include "ardour/midi_operator.h"
 #include "ardour/session_handle.h"
 #include "ardour/types.h"
@@ -80,7 +81,7 @@ class Selection;
 class SelectionMemento;
 class SelectableOwner;
 
-class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider, public Temporal::ScopedTempoMapOwner, public virtual sigc::trackable
+class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider, public Temporal::ScopedTempoMapOwner, public ARDOUR::ChordProvider, public virtual sigc::trackable
 {
  public:
 	EditingContext (std::string const &);
@@ -521,6 +522,8 @@ class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider,
 	};
 
 	virtual Gtk::Menu* get_single_region_context_menu ();
+
+	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const { return false; }
 
   protected:
 	std::string _name;

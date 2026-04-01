@@ -51,6 +51,7 @@ ChordBox::ChordBox ()
 	, drop_label (_("Drop Notes"))
 	, _root (0)
 	, _culture (WesternEurope12TET)
+	, _scale_provider (nullptr)
 {
 	using namespace Gtk;
 	using namespace Menu_Helpers;
@@ -346,4 +347,17 @@ int
 ChordBox::get_root () const
 {
 	return 0;
+}
+
+void
+ChordBox::set_scale_provider (ScaleProvider const * sp)
+{
+	_scale_provider = sp;
+}
+
+bool
+ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
+{
+	std::cerr << "chord box asked for a chord\n";
+	return false;
 }

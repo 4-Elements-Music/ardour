@@ -85,6 +85,7 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport, bool expand
 	, bbt_metric (*this)
 	, ignore_channel_changes (false)
 	, xcursor (nullptr)
+	, _chord_provider (nullptr)
 {
 	autoscroll_vertical_allowed = false;
 
@@ -2387,6 +2388,28 @@ Pianoroll::midiviews_from_region_selection (RegionSelection const &) const
 	}
 
 	return mv;
+}
+
+bool
+Pianoroll::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
+{
+	if (!_active_view) {
+		return false;
+	}
+
+	if (!_chord_provider) {
+		return false;
+	}
+
+	_chord_provider->set_scale_provider (_active_view->midi_region().get());
+
+	return _chord_provider->get_midi_chord (root_pitch, pitches);
+}
+
+void
+Pianoroll::set_chord_provider (ChordProvider* cp)
+{
+	_chord_provider = cp;
 }
 
 /*----*/

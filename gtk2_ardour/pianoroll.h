@@ -177,6 +177,9 @@ class Pianoroll : public CueEditor
 	void add_automation_lane (Evoral::Parameter const & param);
 	void remove_automation_lane (Evoral::Parameter const & param);
 
+	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const;
+	void set_chord_provider (ARDOUR::ChordProvider*);
+
   protected:
 	Temporal::timepos_t snap_to_grid (Temporal::timepos_t const & start,
 	                                  Temporal::RoundMode   direction,
@@ -325,4 +328,6 @@ class Pianoroll : public CueEditor
 
 	void partition_height ();
 	Evoral::Parameter automation_by_y (double y);
+
+	ARDOUR::ChordProvider* _chord_provider;
 };
