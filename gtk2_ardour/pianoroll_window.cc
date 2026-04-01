@@ -24,6 +24,7 @@
 #include "gtkmm2ext/doi.h"
 
 #include "ardour_ui.h"
+#include "chord_box.h"
 #include "midi_inspector.h"
 #include "pianoroll.h"
 #include "pianoroll_window.h"
@@ -76,6 +77,8 @@ PianorollWindow::set (std::shared_ptr<MidiTrack> track, std::shared_ptr<MidiRegi
 	// region_editor->show ();
 	midi_inspector->show ();
 	pianoroll->contents().show ();
+
+	pianoroll->set_chord_provider (midi_inspector->chord_box);
 }
 
 bool

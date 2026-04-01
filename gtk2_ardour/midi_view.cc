@@ -945,17 +945,38 @@ MidiView::create_note_at (timepos_t const & source_relative_start, double y, Tem
 		return;
 	}
 
-	start_note_diff_command(_("add note"), control_reversible_command);
-	note_diff_add_note (new_note, true, false);
-	apply_note_diff (!control_reversible_command);
+	std::vector<int> pitches;
 
-	// XXX _editing_context.set_selected_midi_region_view (*this);
-	list<Evoral::event_id_t> to_be_selected;
-	to_be_selected.push_back (new_note->id());
-	select_notes (to_be_selected, true);
+	if (_editing_context.get_midi_chord (note, pitches)) {
 
-	if (control_reversible_command) {
-		play_midi_note (new_note);
+		list<Evoral::event_id_t> to_be_selected;
+		start_note_diff_command(_("add chord"), control_reversible_command);
+
+		for (auto & p : pitches) {
+			const std::shared_ptr<NoteType> new_note (new NoteType (chan, t, length, p, velocity));
+			note_diff_add_note (new_note, true, false);
+			to_be_selected.push_back (new_note->id());
+		}
+
+		apply_note_diff (!control_reversible_command);
+
+		// XXX _editing_context.set_selected_midi_region_view (*this);
+		select_notes (to_be_selected, true);
+
+	} else {
+
+		start_note_diff_command(_("add note"), control_reversible_command);
+		note_diff_add_note (new_note, true, false);
+		apply_note_diff (!control_reversible_command);
+
+		// XXX _editing_context.set_selected_midi_region_view (*this);
+		list<Evoral::event_id_t> to_be_selected;
+		to_be_selected.push_back (new_note->id());
+		select_notes (to_be_selected, true);
+
+		if (control_reversible_command) {
+			play_midi_note (new_note);
+		}
 	}
 }
 

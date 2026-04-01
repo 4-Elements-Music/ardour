@@ -358,6 +358,9 @@ ChordBox::set_scale_provider (ScaleProvider const * sp)
 bool
 ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 {
-	std::cerr << "chord box asked for a chord\n";
-	return false;
+	pitches.push_back (root_pitch);
+	pitches.push_back (root_pitch+2);
+	pitches.push_back (root_pitch+5);
+	pitches.push_back (root_pitch+8);
+	return true;
 }

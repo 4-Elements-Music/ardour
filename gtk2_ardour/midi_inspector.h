@@ -28,7 +28,8 @@ class MidiInspector : public Gtk::VBox
   public:
 	MidiInspector ();
 
+	ChordBox* chord_box;
+
   private:
 	Gtk::Expander chord_expander;
-	ChordBox* chord_box;
 };
