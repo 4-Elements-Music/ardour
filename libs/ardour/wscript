@@ -46,6 +46,7 @@ libardour_sources = [
         'capturing_processor.cc',
         'chan_count.cc',
         'chan_mapping.cc',
+        'chord_provider.cc',
         'circular_buffer.cc',
         'clip_library.cc',
         'config_text.cc',

@@ -19,6 +19,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 
 namespace ARDOUR {
 
@@ -32,6 +33,36 @@ class ChordProvider
 
 	virtual bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const = 0;
 	virtual void set_scale_provider (ScaleProvider const * sp) {}
+
+	/* vector values are semitone intervals from root */
+	struct TET12Chord : std::vector<int> {
+		std::string name;
+	};
+
+	typedef std::vector<TET12Chord> TET12Chords;
+	static TET12Chords tet12_chords;
+	static void build_12tet_chords ();
+
+	enum TET12Intervals {
+		ROOT = 0,
+		FLAT_SECOND = 1,
+		SECOND = 2,
+		MINOR_THIRD = 3,
+		MAJOR_THIRD = 4,
+		FOURTH = 5,
+		FLAT_FIFTH = 6,
+		FIFTH = 7,
+		SHARP_FIFTH = 8,
+		SIXTH = 9,
+		DOM_SEVENTH = 10,
+		MAJ_SEVENTH = 11,
+		//convenient aliases
+		NINTH = SECOND,
+		ELEVENTH = FOURTH,
+		THIRTEENTH = SIXTH,
+		DOUBLE_FLAT_SEVENTH = SIXTH,
+		SHARP_NINTH = MINOR_THIRD,
+	};
 };
 
 }
