@@ -367,7 +367,9 @@ ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 	auto res = tet12_chords.find (name);
 
 	if (res != tet12_chords.end()) {
-		pitches = res->second;
+		for (auto & interval : res->second) {
+			pitches.push_back (root_pitch + interval);
+		}
 		return true;
 	}
 
