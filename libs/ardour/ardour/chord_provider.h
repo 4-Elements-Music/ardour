@@ -20,6 +20,7 @@
 
 #include <vector>
 #include <string>
+#include <map>
 
 namespace ARDOUR {
 
@@ -34,34 +35,51 @@ class ChordProvider
 	virtual bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const = 0;
 	virtual void set_scale_provider (ScaleProvider const * sp) {}
 
-	/* vector values are semitone intervals from root */
-	struct TET12Chord : std::vector<int> {
-		std::string name;
-	};
-
-	typedef std::vector<TET12Chord> TET12Chords;
+	typedef std::map<std::string,std::vector<int> > TET12Chords;
 	static TET12Chords tet12_chords;
 	static void build_12tet_chords ();
+	template<typename...Names> static void register_12tet_chord (std::vector<int> const intervals, Names...chord_names);
 
 	enum TET12Intervals {
-		ROOT = 0,
-		FLAT_SECOND = 1,
-		SECOND = 2,
-		MINOR_THIRD = 3,
-		MAJOR_THIRD = 4,
-		FOURTH = 5,
-		FLAT_FIFTH = 6,
-		FIFTH = 7,
-		SHARP_FIFTH = 8,
-		SIXTH = 9,
-		DOM_SEVENTH = 10,
-		MAJ_SEVENTH = 11,
-		//convenient aliases
-		NINTH = SECOND,
-		ELEVENTH = FOURTH,
-		THIRTEENTH = SIXTH,
-		DOUBLE_FLAT_SEVENTH = SIXTH,
-		SHARP_NINTH = MINOR_THIRD,
+		Unison = 0,
+		MinorSecond = 1,
+		MajorSecond = 2,
+		MinorThird = 3,
+		MajorThird = 4,
+		PerfectFourth = 5,
+		Tritone = 6,
+		PerfectFifth = 7,
+		MinorSixth = 8,
+		MajorSixth = 9,
+		MinorSeventh = 10,
+		MajorSeventh = 11,
+		PerfectOctave = 12,
+
+		/* aliases set #1 */
+
+		P0 = PerfectOctave,
+		m2 = MinorSecond,
+		M2 = MajorSecond,
+		m3 = MinorThird,
+		M3 = MajorThird,
+		P4 = PerfectFourth,
+		A4 = Tritone,
+		d5 = Tritone,
+		P5 = PerfectFifth,
+		m6 = MinorSixth,
+		M6 = MajorSixth,
+		m7 = MinorSeventh,
+		M7 = MajorSeventh,
+		P8 = PerfectOctave,
+
+		/* aliases set two */
+
+		flat2 = MinorSecond,
+		fourth = PerfectFourth,
+		flat5 = Tritone,
+		sharp5 = MinorSixth,
+		dom7 = MinorSeventh,
+		dblflat7 = MajorSixth,
 	};
 };
 

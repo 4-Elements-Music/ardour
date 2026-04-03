@@ -23,32 +23,34 @@ using namespace ARDOUR;
 
 ChordProvider::TET12Chords ChordProvider::tet12_chords;
 
+template<typename...Names>
+void
+ChordProvider::register_12tet_chord (std::vector<int> const intervals, Names...chord_names)
+{
+	for (auto & chord_name : { chord_names... } ) {
+		tet12_chords[chord_name] = intervals;
+	}
+}
+
 void
 ChordProvider::build_12tet_chords ()
 {
-	TET12Chord c;
+	/* triads */
 
-	c.name = _("maj");
-	c.assign ({ROOT, MAJOR_THIRD, FIFTH });
-	tet12_chords.push_back (c);
+	register_12tet_chord ({ Unison, M3, P5 }, _("maj"), _("major"));
+	register_12tet_chord ({ Unison, m3, P5 }, _("min"));
+	register_12tet_chord ({ Unison, P4, P5 }, _("sus4"));
+	register_12tet_chord ({ Unison, M2, P5 }, _("sus2"));
+	register_12tet_chord ({ Unison, m3, d5 }, _("dim"));
+	register_12tet_chord ({ Unison, M3, m6 }, _("aug"));
 
-	c.name = _("min");
-	c.assign ({ROOT, MINOR_THIRD, FIFTH });
-	tet12_chords.push_back (c);
+	/* tetrads */
 
-	c.name = _("sus4");
-	c.assign ({ ROOT, FOURTH, FIFTH });
-	tet12_chords.push_back (c);
-
-	c.name = _("sus2");
-	c.assign ({ ROOT, SECOND, FIFTH });
-	tet12_chords.push_back (c);
-
-	c.name = _("dim");
-	c.assign ({ ROOT, MINOR_THIRD, FLAT_FIFTH });
-	tet12_chords.push_back (c);
-
-	c.name = _("aug");
-	c.assign ({ ROOT, MAJOR_THIRD, SHARP_FIFTH });
-	tet12_chords.push_back (c);
-};
+	register_12tet_chord ({ Unison, M3, P5, M7 }, _("maj7"), _("7"));
+	register_12tet_chord ({ Unison, m3, P5, m7 }, _("min7"), _("dom7"));
+	register_12tet_chord ({ Unison, M3, d5, m7 }, _("min7/b5"));
+	register_12tet_chord ({ Unison, M3, m6, M7 }, _("aug7"));
+	register_12tet_chord ({ Unison, m3, d5, m7 }, _("dim7"));
+	register_12tet_chord ({ Unison, m3, P5, m6 }, _("min6"));
+	register_12tet_chord ({ Unison, M3, P5, M6 },  _("maj6"));
+}
