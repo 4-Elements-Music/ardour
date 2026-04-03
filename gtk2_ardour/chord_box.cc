@@ -57,6 +57,10 @@ ChordBox::ChordBox ()
 	using namespace Menu_Helpers;
 	using namespace ArdourWidgets;
 
+	if (tet12_chords.empty()) {
+		build_12tet_chords ();
+	}
+
 	/* these must match the enum decl order */
 	culture_button.add_menu_elem (MenuElem (_("Western 12TET"), [this]() { set_culture (WesternEurope12TET); }));
 	culture_button.add_menu_elem (MenuElem (_("Byzantine"), [this]() { set_culture (Byzantine); }));
@@ -358,9 +362,14 @@ ChordBox::set_scale_provider (ScaleProvider const * sp)
 bool
 ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 {
-	pitches.push_back (root_pitch);
-	pitches.push_back (root_pitch+2);
-	pitches.push_back (root_pitch+5);
-	pitches.push_back (root_pitch+8);
-	return true;
+	std::string name = "maj";
+
+	auto res = tet12_chords.find (name);
+
+	if (res != tet12_chords.end()) {
+		pitches = res->second;
+		return true;
+	}
+
+	return false;
 }
