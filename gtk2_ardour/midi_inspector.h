@@ -22,14 +22,18 @@
 #include "ytkmm/expander.h"
 
 class ChordBox;
+class EditingContext;
+class QuantizeWidget;
 
 class MidiInspector : public Gtk::VBox
 {
   public:
-	MidiInspector ();
+	MidiInspector (EditingContext&);
 
 	ChordBox* chord_box;
+	QuantizeWidget* quantize_widget;
 
   private:
 	Gtk::Expander chord_expander;
+	Gtk::Expander quantize_expander;
 };

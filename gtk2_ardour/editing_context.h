@@ -399,7 +399,7 @@ class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider,
 	typedef std::vector<MidiView*> MidiViews;
 
 	/* MIDI actions, proxied to selected MidiRegionView(s) */
-	ARDOUR::Quantize* get_quantize_op ();
+	virtual ARDOUR::Quantize* get_quantize_op ();
 	ARDOUR::Strum* get_strum_op (bool, bool);
 	void apply_midi_note_edit_op (ARDOUR::MidiOperator& op, const RegionSelection& rs);
 	void apply_midi_note_edit_op (ARDOUR::MidiOperator& op, const MidiViews& rs);

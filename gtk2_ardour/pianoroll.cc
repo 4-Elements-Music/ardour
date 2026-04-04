@@ -23,8 +23,9 @@
 
 #include "ardour/midi_region.h"
 #include "ardour/midi_track.h"
-#include "ardour/smf_source.h"
+#include "ardour/quantize.h"
 #include "ardour/region_factory.h"
+#include "ardour/smf_source.h"
 
 #include "canvas/box.h"
 #include "canvas/canvas.h"
@@ -57,6 +58,7 @@
 #include "pianoroll_midi_view.h"
 #include "pitch_color_dialog.h"
 #include "public_editor.h"
+#include "quantize_dialog.h"
 #include "note_base.h"
 #include "prh.h"
 #include "timers.h"
@@ -498,7 +500,7 @@ Pianoroll::build_canvas ()
 	_canvas.set_can_focus ();
 	_canvas.signal_show().connect (sigc::mem_fun (*this, &CueEditor::catch_pending_show_region));
 
-	midi_inspector = manage (new MidiInspector);
+	midi_inspector = manage (new MidiInspector (*this));
 	midi_inspector->chord_box->ReplaceChord.connect ([this](std::vector<int> intervals) { replace_chord (intervals); });
 
 	_hpacker.pack_start (*midi_inspector, false, false);
@@ -514,6 +516,22 @@ Pianoroll::replace_chord (std::vector<int> intervals)
 	if (_active_view) {
 		_active_view->replace_chord (intervals);
 	}
+}
+
+Quantize*
+Pianoroll::get_quantize_op ()
+{
+	EC_LOCAL_TEMPO_SCOPE;
+
+	QuantizeWidget* qw (midi_inspector->quantize_widget);
+
+	return new Quantize (qw->snap_start(),
+	                     qw->snap_end(),
+	                     qw->start_grid_size(),
+	                     qw->end_grid_size(),
+	                     qw->strength(),
+	                     qw->swing(),
+	                     qw->threshold());
 }
 
 void
@@ -2394,12 +2412,19 @@ Pianoroll::get_single_region_context_menu ()
 EditingContext::MidiViews
 Pianoroll::midiviews_from_region_selection (RegionSelection const &) const
 {
-	/* there is no region selection */
-
 	MidiViews mv;
 
-	if (midi_view()) {
-		mv.push_back (midi_view());
+	if (_editing_policy == ActiveView) {
+
+		if (_active_view) {
+			mv.push_back (_active_view);
+		}
+
+	} else if (_editing_policy == AllViews) {
+
+		for (auto & [region,view] : region_view_map) {
+			mv.push_back (view);
+		}
 	}
 
 	return mv;

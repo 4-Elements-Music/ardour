@@ -18,13 +18,21 @@
 
 #include "chord_box.h"
 #include "midi_inspector.h"
+#include "quantize_dialog.h"
 #include "pbd/i18n.h"
 
-MidiInspector::MidiInspector ()
+MidiInspector::MidiInspector (EditingContext& ec)
 	: chord_expander (_("Chord Editing"))
+	, quantize_expander (_("Quantize"))
 {
 	chord_box = manage (new ChordBox);
 	chord_expander.add (*chord_box);
 
+	quantize_widget = manage (new QuantizeWidget (ec));
+	quantize_expander.add (*quantize_widget);
+
 	pack_start (chord_expander, false, false);
+	pack_start (quantize_expander, false, false);
+
+	set_border_width (12);
 }
