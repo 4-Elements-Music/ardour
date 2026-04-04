@@ -46,6 +46,7 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	void pack (Gtk::Widget&);
 
 	ArdourWidgets::ArdourDropdown culture_button;
+	std::string target_chord;
 
 	/* Western */
 
@@ -68,6 +69,9 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	int  get_root () const;
 
 	void build_western ();
+
+	void tet12_chord_chosen (std::string const &);
+	void register_actions ();
 
 	/* end western */
 

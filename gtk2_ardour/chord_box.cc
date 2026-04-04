@@ -16,6 +16,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "gtkmm2ext/actions.h"
+
 #include "chord_box.h"
 
 #include "pbd/i18n.h"
@@ -59,6 +61,7 @@ ChordBox::ChordBox ()
 
 	if (tet12_chords.empty()) {
 		build_12tet_chords ();
+		register_actions ();
 	}
 
 	/* these must match the enum decl order */
@@ -147,13 +150,15 @@ ChordBox::build_western ()
 	int col = 0;
 
 	butl = manage (new ArdourButton (_("maj")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("maj")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("min")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("min")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
@@ -161,13 +166,15 @@ ChordBox::build_western ()
 	row++;
 
 	butl = manage (new ArdourButton (_("sus4")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus4")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("sus2")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus2")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
@@ -175,13 +182,15 @@ ChordBox::build_western ()
 	row++;
 
 	butl = manage (new ArdourButton (_("dim")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("dim")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("aug")));
-	butr = manage (new ArdourButton);
+	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
+	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("aug")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	triad_table.attach (*dbut, col, col+1, row, row+1);
@@ -362,9 +371,11 @@ ChordBox::set_scale_provider (ScaleProvider const * sp)
 bool
 ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 {
-	std::string name = "maj";
+	if (target_chord.empty()) {
+		return false;
+	}
 
-	auto res = tet12_chords.find (name);
+	auto res = tet12_chords.find (target_chord);
 
 	if (res != tet12_chords.end()) {
 		for (auto & interval : res->second) {
@@ -374,4 +385,34 @@ ChordBox::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 	}
 
 	return false;
+}
+
+void
+ChordBox::tet12_chord_chosen (std::string const & name)
+{
+	if (tet12_chords.find (name) != tet12_chords.end()) {
+		target_chord = name;
+	} else {
+		target_chord = std::string();
+	}
+}
+
+void
+ChordBox::register_actions ()
+{
+#if 0
+	using namespace Gtk;
+
+	Glib::RefPtr<ActionGroup> chord_actions = ActionManager::create_action_group (bindings, X_("Chords"));
+
+	RadioAction::Group triad_group;
+	Glib::RefPtr<RadioAction> ract;
+
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-major"), _("Chord|maj"), []() { te12_chord_chosen (_("maj")); });
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-minor"), _("Chord|min"), []() { te12_chord_chosen (_("min")); });
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-sus4"), _("Chord|sus4"), []() { te12_chord_chosen (_("sus4")); });
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-sus2"), _("Chord|sus2"), []() { te12_chord_chosen (_("sus2")); });
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-dom"), _("Chord|dom"), []() { te12_chord_chosen (_("dom")); });
+	ActionManager::register_radio_action (chord_actions, triad_group, X_("use-chord-aug"), _("Chord|aug"), []() { te12_chord_chosen (_("aug")); });
+#endif
 }
