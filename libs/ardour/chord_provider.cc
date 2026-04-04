@@ -52,5 +52,5 @@ ChordProvider::build_12tet_chords ()
 	register_12tet_chord ({ Unison, M3, m6, M7 }, _("aug7"));
 	register_12tet_chord ({ Unison, m3, d5, m7 }, _("dim7"));
 	register_12tet_chord ({ Unison, m3, P5, m6 }, _("min6"));
-	register_12tet_chord ({ Unison, M3, P5, M6 },  _("maj6"));
+	register_12tet_chord ({ Unison, M3, P5, M6 }, _("maj6"));
 }
