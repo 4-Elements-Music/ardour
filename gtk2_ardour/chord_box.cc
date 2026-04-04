@@ -211,13 +211,15 @@ ChordBox::build_western ()
 	row = 0;
 	col = 0;
 
-	butl = manage (new ArdourButton (X_("\u0394")));
+	butl = manage (new ArdourButton (_("maj7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	butl = manage (new ArdourButton (X_("7")));
+	butl = manage (new ArdourButton (_("7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
@@ -225,13 +227,15 @@ ChordBox::build_western ()
 	col = 0;
 	row++;
 
-	butl = manage (new ArdourButton (X_("-6")));
+	butl = manage (new ArdourButton (_("min7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	butl = manage (new ArdourButton (X_("-6")));
+	butl = manage (new ArdourButton (_("min6")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min6")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
@@ -239,13 +243,15 @@ ChordBox::build_western ()
 	col = 0;
 	row++;
 
-	butl = manage (new ArdourButton (X_("-7/b5")));
+	butl = manage (new ArdourButton (_("min7/b5")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min7/b5")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	butl = manage (new ArdourButton (X_("-j7")));
+	butl = manage (new ArdourButton (_("minj7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("minj7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
@@ -253,13 +259,15 @@ ChordBox::build_western ()
 	col = 0;
 	row++;
 
-	butl = manage (new ArdourButton (X_("su4/7")));
+	butl = manage (new ArdourButton (_("sus4/7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus4/7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	butl = manage (new ArdourButton (X_("sus2/7")));
+	butl = manage (new ArdourButton (_("sus2/7")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus2/7")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
@@ -267,13 +275,15 @@ ChordBox::build_western ()
 	col = 0;
 	row++;
 
-	butl = manage (new ArdourButton (X_("dim")));
+	butl = manage (new ArdourButton (_("full dim")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("full dim")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
 	tetrad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
-	butl = manage (new ArdourButton (X_("\u0394 #5")));
+	butl = manage (new ArdourButton (_("maj7/#5")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj7/#5")); });
 	butr = manage (new ArdourButton);
 	butr->set_icon (ArdourIcon::ToolDraw);
 	dbut = new DoubleButton (*butl, *butr);
