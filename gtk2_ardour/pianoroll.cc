@@ -511,6 +511,9 @@ Pianoroll::build_canvas ()
 void
 Pianoroll::replace_chord (std::vector<int> intervals)
 {
+	if (_active_view) {
+		_active_view->replace_chord (intervals);
+	}
 }
 
 void

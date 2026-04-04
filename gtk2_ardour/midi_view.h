@@ -225,6 +225,8 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	void   extend_selection ();
 	void   duplicate_selection ();
 
+	void replace_chord (std::vector<int> const & intervals);
+
 	Temporal::Beats earliest_in_selection ();
 	void move_selection(Temporal::timecnt_t const & dx, double dy, double cumulative_dy);
 	void note_dropped (NoteBase* ev, Temporal::timecnt_t const & d_qn, int8_t d_note, bool copy);
@@ -693,5 +695,6 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	bool show_context_menu (GdkEventButton*);
 
 	void _duplicate_notes (int times);
+	bool chord_is_selected () const;
 
 };

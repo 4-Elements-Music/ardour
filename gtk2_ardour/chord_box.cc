@@ -406,7 +406,7 @@ ChordBox::tet12_chord_chosen (std::string const & name)
 void
 ChordBox::tet12_replace_chord (std::string const & name)
 {
-	auto res = tet12_chords.find (target_chord);
+	auto res = tet12_chords.find (name);
 
 	if (res != tet12_chords.end()) {
 		ReplaceChord (res->second); /* EMIT SIGNAL */

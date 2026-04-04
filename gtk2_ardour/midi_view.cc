@@ -772,10 +772,12 @@ MidiView::scroll (GdkEventScroll* ev)
 		switch (ev->direction) {
 		case GDK_SCROLL_UP:
 		case GDK_SCROLL_DOWN:
-            /* pass scroll event to midi context for vertial move/zoom */
-            if (_midi_context.scroll(ev)) {
-                 return true;
-            }
+			/* pass scroll event to midi context for vertial move/zoom */
+			if (_midi_context.scroll(ev)) {
+				return true;
+			}
+			break;
+
 		case GDK_SCROLL_LEFT:
 			_editing_context.set_horizontal_position (_editing_context.horizontal_position() - 20.0);
 			return true;
@@ -978,6 +980,63 @@ MidiView::create_note_at (timepos_t const & source_relative_start, double y, Tem
 			play_midi_note (new_note);
 		}
 	}
+}
+
+bool
+MidiView::chord_is_selected () const
+{
+	if (_selection.size() < 3) {
+		return false;
+	}
+
+	size_t cnt = 1;
+	auto s = _selection.begin();
+
+	Temporal::Beats start = (*s)->note()->time();
+	++s;
+
+	while (s != _selection.end()) {
+		Temporal::Beats delta = (*s)->note()->time() - start;
+		if (delta.abs() > Temporal::Beats (0, 15)) { /* 1/128th note */
+			return false;
+		}
+		++cnt;
+		++s;
+	}
+	return true;
+}
+
+void
+MidiView::replace_chord (std::vector<int> const & intervals)
+{
+	if (_selection.size() != intervals.size()) {
+		/* cannot replace triads with tetrads etc */
+		return;
+	}
+
+	if (!chord_is_selected()) {
+		return;
+	}
+
+	/* this ignores inversions */
+	int root_pitch = 128;
+
+	for (auto const & sel : _selection) {
+		if (sel->note()->note() < root_pitch) {
+			root_pitch = sel->note ()->note();
+		}
+	}
+
+	start_note_diff_command (_("replace chord"));
+
+	std::vector<int>::size_type n = 0;
+
+	for (auto const & sel : _selection) {
+		_note_diff_command->change (sel->note (), MidiModel::NoteDiffCommand::NoteNumber, root_pitch + intervals[n]);
+		++n;
+	}
+	apply_note_diff ();
+	hide_verbose_cursor ();
 }
 
 void
