@@ -330,4 +330,5 @@ class Pianoroll : public CueEditor
 	Evoral::Parameter automation_by_y (double y);
 
 	MidiInspector* midi_inspector;
+	void replace_chord (std::vector<int> intervals);
 };

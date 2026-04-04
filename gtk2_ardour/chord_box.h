@@ -40,7 +40,11 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	void set_culture (ARDOUR::MusicalModeCulture);
 	void set_scale_provider (ARDOUR::ScaleProvider const *);
 
-	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const;
+	typedef std::vector<int> IntervalSet;
+
+	bool get_midi_chord (int root_pitch, IntervalSet& pitches) const;
+
+	sigc::signal<void, IntervalSet> ReplaceChord;
 
  private:
 	void pack (Gtk::Widget&);
@@ -71,6 +75,9 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	void build_western ();
 
 	void tet12_chord_chosen (std::string const &);
+	void tet12_replace_chord (std::string const &);
+	void tet12_modify_chord (std::string const &);
+
 	void register_actions ();
 
 	/* end western */

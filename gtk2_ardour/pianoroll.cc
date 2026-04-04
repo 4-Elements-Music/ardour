@@ -499,11 +499,18 @@ Pianoroll::build_canvas ()
 	_canvas.signal_show().connect (sigc::mem_fun (*this, &CueEditor::catch_pending_show_region));
 
 	midi_inspector = manage (new MidiInspector);
+	midi_inspector->chord_box->ReplaceChord.connect ([this](std::vector<int> intervals) { replace_chord (intervals); });
+
 	_hpacker.pack_start (*midi_inspector, false, false);
 	_hpacker.reorder_child (*midi_inspector, 0);
 
 	_toolbox.pack_start (_canvas_viewport, true, true);
 	_toolbox.reorder_child (_canvas_viewport, 1);
+}
+
+void
+Pianoroll::replace_chord (std::vector<int> intervals)
+{
 }
 
 void

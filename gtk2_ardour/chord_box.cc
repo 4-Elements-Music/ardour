@@ -150,6 +150,7 @@ ChordBox::build_western ()
 	int col = 0;
 
 	butl = manage (new ArdourButton (_("maj")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("maj")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -157,6 +158,7 @@ ChordBox::build_western ()
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("min")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("min")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -166,6 +168,7 @@ ChordBox::build_western ()
 	row++;
 
 	butl = manage (new ArdourButton (_("sus4")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus4")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus4")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -173,6 +176,7 @@ ChordBox::build_western ()
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("sus2")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus2")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus2")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -182,6 +186,7 @@ ChordBox::build_western ()
 	row++;
 
 	butl = manage (new ArdourButton (_("dim")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("dim")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("dim")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -189,6 +194,7 @@ ChordBox::build_western ()
 	triad_table.attach (*dbut, col, col+1, row, row+1);
 	col++;
 	butl = manage (new ArdourButton (_("aug")));
+	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("aug")); });
 	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
 	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("aug")); });
 	butr->set_icon (ArdourIcon::ToolDraw);
@@ -394,6 +400,16 @@ ChordBox::tet12_chord_chosen (std::string const & name)
 		target_chord = name;
 	} else {
 		target_chord = std::string();
+	}
+}
+
+void
+ChordBox::tet12_replace_chord (std::string const & name)
+{
+	auto res = tet12_chords.find (target_chord);
+
+	if (res != tet12_chords.end()) {
+		ReplaceChord (res->second); /* EMIT SIGNAL */
 	}
 }
 
