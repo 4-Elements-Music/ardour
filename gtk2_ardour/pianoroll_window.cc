@@ -25,7 +25,6 @@
 
 #include "ardour_ui.h"
 #include "chord_box.h"
-#include "midi_inspector.h"
 #include "pianoroll.h"
 #include "pianoroll_window.h"
 #include "region_editor.h"
@@ -36,7 +35,6 @@ PianorollWindow::PianorollWindow (std::string const & name, Session& s)
 	: ArdourWindow (string_compose ("%1 - %2", PROGRAM_NAME, name))
 	, pianoroll (new Pianoroll (name, true))
 	, region_editor (nullptr)
-	, midi_inspector (nullptr)
 {
 	pianoroll->set_session (&s);
 	pianoroll->get_canvas_viewport()->set_size_request (1270, 700);
@@ -68,17 +66,10 @@ PianorollWindow::set (std::shared_ptr<MidiTrack> track, std::shared_ptr<MidiRegi
 	// hpacker.pack_start (*region_editor, false, false);
 
 
-	delete midi_inspector;
-	midi_inspector = new MidiInspector;
-	hpacker.pack_start (*midi_inspector, false, false);
-
 	hpacker.pack_start (pianoroll->contents(), true, true);
 
 	// region_editor->show ();
-	midi_inspector->show ();
 	pianoroll->contents().show ();
-
-	pianoroll->set_chord_provider (midi_inspector->chord_box);
 }
 
 bool

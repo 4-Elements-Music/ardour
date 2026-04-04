@@ -42,12 +42,14 @@
 #include "widgets/tooltips.h"
 
 #include "ardour_ui.h"
+#include "chord_box.h"
 #include "cross_cursor.h"
 #include "editing_convert.h"
 #include "editor_cursors.h"
 #include "editor_drag.h"
 #include "gui_thread.h"
 #include "keyboard.h"
+#include "midi_inspector.h"
 #include "midi_util.h"
 #include "paste_context.h"
 #include "pianoroll_background.h"
@@ -85,7 +87,6 @@ Pianoroll::Pianoroll (std::string const & name, bool with_transport, bool expand
 	, bbt_metric (*this)
 	, ignore_channel_changes (false)
 	, xcursor (nullptr)
-	, _chord_provider (nullptr)
 {
 	autoscroll_vertical_allowed = false;
 
@@ -496,6 +497,10 @@ Pianoroll::build_canvas ()
 	_canvas.add_events (Gdk::POINTER_MOTION_HINT_MASK | Gdk::SCROLL_MASK | Gdk::KEY_PRESS_MASK | Gdk::KEY_RELEASE_MASK);
 	_canvas.set_can_focus ();
 	_canvas.signal_show().connect (sigc::mem_fun (*this, &CueEditor::catch_pending_show_region));
+
+	midi_inspector = manage (new MidiInspector);
+	_hpacker.pack_start (*midi_inspector, false, false);
+	_hpacker.reorder_child (*midi_inspector, 0);
 
 	_toolbox.pack_start (_canvas_viewport, true, true);
 	_toolbox.reorder_child (_canvas_viewport, 1);
@@ -2397,19 +2402,9 @@ Pianoroll::get_midi_chord (int root_pitch, std::vector<int>& pitches) const
 		return false;
 	}
 
-	if (!_chord_provider) {
-		return false;
-	}
+	midi_inspector->chord_box->set_scale_provider (_active_view->midi_region().get());
 
-	_chord_provider->set_scale_provider (_active_view->midi_region().get());
-
-	return _chord_provider->get_midi_chord (root_pitch, pitches);
-}
-
-void
-Pianoroll::set_chord_provider (ChordProvider* cp)
-{
-	_chord_provider = cp;
+	return midi_inspector->chord_box->get_midi_chord (root_pitch, pitches);
 }
 
 /*----*/

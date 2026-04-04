@@ -545,7 +545,9 @@ CueEditor::build_upper_toolbar ()
 	toolbar_outer->pack_end (*toolbar_right, false, false);
 	_toolbox.pack_start (*toolbar_outer, false, false); // VBox
 
-	_contents.add (_toolbox);
+	_hpacker.pack_start (_toolbox, true, true);
+
+	_contents.add (_hpacker);
 	_contents.signal_unmap().connect ([this]()  { get_canvas_viewport()->unmap (); }, false);
 	_contents.signal_map().connect ([this]() { get_canvas_viewport()->map (); }, false);
 }

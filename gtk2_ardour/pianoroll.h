@@ -53,6 +53,7 @@ namespace ArdourWidgets {
 class CrossCursor;
 class PianorollMidiView;
 class PianorollMidiBackground;
+class MidiInspector;
 
 struct ControllerControls : public Gtk::HBox {
 	ControllerControls (int num, std::string const & name, Gtk::RadioButtonGroup& group);
@@ -178,7 +179,6 @@ class Pianoroll : public CueEditor
 	void remove_automation_lane (Evoral::Parameter const & param);
 
 	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const;
-	void set_chord_provider (ARDOUR::ChordProvider*);
 
   protected:
 	Temporal::timepos_t snap_to_grid (Temporal::timepos_t const & start,
@@ -329,5 +329,5 @@ class Pianoroll : public CueEditor
 	void partition_height ();
 	Evoral::Parameter automation_by_y (double y);
 
-	ARDOUR::ChordProvider* _chord_provider;
+	MidiInspector* midi_inspector;
 };

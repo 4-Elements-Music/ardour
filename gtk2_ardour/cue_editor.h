@@ -151,6 +151,7 @@ class CueEditor : public EditingContext, public PBD::HistoryOwner
 	bool with_transport_controls;
 	bool show_source;
 	ArdourWidgets::EventBoxExt _contents;
+	Gtk::HBox                  _hpacker;
 	Gtk::VBox                  _toolbox;
 	Gtk::HBox                   button_bar;
 	Gtk::HScrollbar*           _canvas_hscrollbar;

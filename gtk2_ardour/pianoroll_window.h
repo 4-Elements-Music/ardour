@@ -28,7 +28,6 @@ namespace ARDOUR {
 	class Track;
 }
 
-class MidiInspector;
 class Pianoroll;
 class RegionEditor;
 
@@ -47,5 +46,4 @@ private:
 	Gtk::HBox     hpacker;
 	Pianoroll*    pianoroll;
 	RegionEditor* region_editor;
-	MidiInspector* midi_inspector;
 };
