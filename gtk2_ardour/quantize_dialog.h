@@ -40,11 +40,11 @@ namespace ARDOUR {
 
 class EditingContext;
 
-class QuantizeDialog : public ArdourDialog
+class QuantizeWidget : public Gtk::Table
 {
 public:
-	QuantizeDialog (Gtk::Window&, EditingContext&);
-	~QuantizeDialog ();
+	QuantizeWidget (EditingContext&);
+	~QuantizeWidget () {}
 
 	Temporal::Beats start_grid_size() const;
 	Temporal::Beats end_grid_size() const;
@@ -75,6 +75,26 @@ private:
 	static std::vector<std::string> type_strings;
 
 	Temporal::Beats grid_size_to_musical_time (const std::string&) const;
+};
+
+class QuantizeDialog : public ArdourDialog
+{
+  public:
+	QuantizeDialog (Gtk::Window&, EditingContext&);
+	~QuantizeDialog() {}
+
+	/* Proxy all QuantizeWidget methods */
+
+	Temporal::Beats start_grid_size() const { return quantize_widget.start_grid_size(); }
+	Temporal::Beats end_grid_size() const { return quantize_widget.end_grid_size(); }
+	bool   snap_start() const { return quantize_widget.snap_start(); }
+	bool   snap_end() const { return quantize_widget.snap_end(); }
+	float  strength() const { return quantize_widget.strength(); }
+	Temporal::Beats  threshold () const { return quantize_widget.threshold(); }
+	float  swing () const { return quantize_widget.swing(); }
+
+  private:
+	QuantizeWidget quantize_widget;
 };
 
 #endif /* __ardour_gtk2_quantize_dialog_h_ */

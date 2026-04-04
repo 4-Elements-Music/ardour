@@ -69,11 +69,10 @@ static const int _grid_beats[] = {
 	0
 };
 
-std::vector<std::string> QuantizeDialog::grid_strings;
+std::vector<std::string> QuantizeWidget::grid_strings;
 
-QuantizeDialog::QuantizeDialog (Gtk::Window& parent, EditingContext& e)
-	: ArdourDialog (parent, _("Quantize"), false, false)
-	, editor (e)
+QuantizeWidget::QuantizeWidget (EditingContext& e)
+	: editor (e)
 	, strength_adjustment (100.0, 0.0, 100.0, 1.0, 10.0)
 	, strength_spinner (strength_adjustment)
 	, strength_label (_("Strength"))
@@ -95,61 +94,50 @@ QuantizeDialog::QuantizeDialog (Gtk::Window& parent, EditingContext& e)
 	set_popdown_strings (end_grid_combo, grid_strings);
 	end_grid_combo.set_active_text (grid_strings.front());
 
-	Table* table = manage (new Table (6, 2));
-	table->set_spacings (12);
-	table->set_border_width (12);
+	set_spacings (12);
+	set_border_width (12);
 
 	int r = 0;
 
-	table->attach (snap_start_button, 0, 1, r, r + 1);
-	table->attach (start_grid_combo, 1, 2, r, r + 1);
+	attach (snap_start_button, 0, 1, r, r + 1);
+	attach (start_grid_combo, 1, 2, r, r + 1);
 	++r;
 
-	table->attach (snap_end_button, 0, 1, r, r + 1);
-	table->attach (end_grid_combo, 1, 2, r, r + 1);
+	attach (snap_end_button, 0, 1, r, r + 1);
+	attach (end_grid_combo, 1, 2, r, r + 1);
 	++r;
 
 	threshold_label.set_alignment (0, 0.5);
-	table->attach (threshold_label, 0, 1, r, r + 1);
-	table->attach (threshold_spinner, 1, 2, r, r + 1);
+	attach (threshold_label, 0, 1, r, r + 1);
+	attach (threshold_spinner, 1, 2, r, r + 1);
 	++r;
 
 	strength_label.set_alignment (0, 0.5);
-	table->attach (strength_label, 0, 1, r, r + 1);
-	table->attach (strength_spinner, 1, 2, r, r + 1);
+	attach (strength_label, 0, 1, r, r + 1);
+	attach (strength_spinner, 1, 2, r, r + 1);
 	++r;
 
-	table->attach (swing_button, 0, 1, r, r + 1);
-	table->attach (swing_spinner, 1, 2, r, r + 1);
+	attach (swing_button, 0, 1, r, r + 1);
+	attach (swing_spinner, 1, 2, r, r + 1);
 
 	snap_start_button.set_active (true);
 	snap_end_button.set_active (false);
-
-	get_vbox()->pack_start (*table);
-	get_vbox()->show_all ();
-
-	add_button (Stock::CANCEL, RESPONSE_CANCEL);
-	add_button (_("Quantize"), RESPONSE_OK);
-}
-
-QuantizeDialog::~QuantizeDialog()
-{
 }
 
 Temporal::Beats
-QuantizeDialog::start_grid_size () const
+QuantizeWidget::start_grid_size () const
 {
 	return grid_size_to_musical_time (start_grid_combo.get_active_text ());
 }
 
 Temporal::Beats
-QuantizeDialog::end_grid_size () const
+QuantizeWidget::end_grid_size () const
 {
 	return grid_size_to_musical_time (end_grid_combo.get_active_text ());
 }
 
 Temporal::Beats
-QuantizeDialog::grid_size_to_musical_time (const string& txt) const
+QuantizeWidget::grid_size_to_musical_time (const string& txt) const
 {
 	if ( txt == _grid_strings[0] ) {  //"Main Grid"
 		bool success;
@@ -176,7 +164,7 @@ QuantizeDialog::grid_size_to_musical_time (const string& txt) const
 }
 
 float
-QuantizeDialog::swing () const
+QuantizeWidget::swing () const
 {
 	if (!swing_button.get_active()) {
 		return 0.0f;
@@ -186,13 +174,26 @@ QuantizeDialog::swing () const
 }
 
 float
-QuantizeDialog::strength () const
+QuantizeWidget::strength () const
 {
 	return strength_adjustment.get_value ();
 }
 
 Temporal::Beats
-QuantizeDialog::threshold () const
+QuantizeWidget::threshold () const
 {
 	return Temporal::Beats::ticks (threshold_adjustment.get_value ());
+}
+
+/* -------- */
+
+QuantizeDialog::QuantizeDialog (Gtk::Window& parent, EditingContext& ec)
+	: ArdourDialog (parent, _("Quantize"), false, false)
+	, quantize_widget (ec)
+{
+	get_vbox()->pack_start (quantize_widget);
+	get_vbox()->show_all ();
+
+	add_button (Stock::CANCEL, RESPONSE_CANCEL);
+	add_button (_("Quantize"), RESPONSE_OK);
 }
