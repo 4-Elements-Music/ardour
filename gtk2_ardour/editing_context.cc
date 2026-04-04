@@ -2205,7 +2205,7 @@ EditingContext::apply_midi_note_edit_op_to_region (MidiOperator& op, MidiView& m
 	mrv.selection_as_notelist (selected, true);
 
 	if (selected.empty()) {
-		return 0;
+		return nullptr;
 	}
 
 	std::vector<Evoral::Sequence<Temporal::Beats>::Notes> v;
