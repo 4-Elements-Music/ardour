@@ -38,7 +38,7 @@ ChordProvider::build_12tet_chords ()
 	/* triads */
 
 	register_12tet_chord ({ Unison, M3, P5 }, _("maj"), _("major"));
-	register_12tet_chord ({ Unison, m3, P5 }, _("min"));
+	register_12tet_chord ({ Unison, m3, P5 }, _("min"), _("minor"));
 	register_12tet_chord ({ Unison, P4, P5 }, _("sus4"));
 	register_12tet_chord ({ Unison, M2, P5 }, _("sus2"));
 	register_12tet_chord ({ Unison, m3, d5 }, _("dim"));
