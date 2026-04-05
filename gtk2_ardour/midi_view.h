@@ -323,6 +323,7 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	}
 
 	void selection_as_notelist (Notes& selected, bool allow_all_if_none_selected = false);
+	void selection_as_notevector (std::vector<std::shared_ptr<NoteType> > & selected, bool allow_all_if_none_selected = false);
 
 	void set_channel_selector_scoped_note(NoteBase* note){ _channel_selection_scoped_note = note; }
 	NoteBase* channel_selector_scoped_note(){  return _channel_selection_scoped_note; }

@@ -1041,6 +1041,9 @@ MidiView::invert_selected_chord (bool up)
 	}
 
 	apply_note_diff ();
+	std::vector<std::shared_ptr<NoteType> > notes;
+	selection_as_notevector (notes);
+	start_playing_midi_chord (notes);
 	hide_verbose_cursor ();
 }
 
@@ -1076,6 +1079,9 @@ MidiView::drop_selected_chord (std::vector<int> const & which_notes)
 		_note_diff_command->change (note, MidiModel::NoteDiffCommand::NoteNumber, note->note() - 12);
 	}
 	apply_note_diff ();
+	std::vector<std::shared_ptr<NoteType> > sn;
+	selection_as_notevector (sn);
+	start_playing_midi_chord (sn);
 	hide_verbose_cursor ();
 }
 
@@ -1109,6 +1115,9 @@ MidiView::replace_chord (std::vector<int> const & intervals)
 		++n;
 	}
 	apply_note_diff ();
+	std::vector<std::shared_ptr<NoteType> > notes;
+	selection_as_notevector (notes);
+	start_playing_midi_chord (notes);
 	hide_verbose_cursor ();
 }
 
@@ -4717,6 +4726,27 @@ MidiView::selection_as_notelist (Notes& selected, bool allow_all_if_none_selecte
 	if (allow_all_if_none_selected && !had_selected) {
 		for (auto & [ note, gui ] : _events) {
 			selected.insert (note);
+		}
+	}
+}
+
+void
+MidiView::selection_as_notevector (std::vector<std::shared_ptr<NoteType> > & selected, bool allow_all_if_none_selected)
+{
+	bool had_selected = false;
+
+	/* we previously time sorted events here, but Notes is a multiset sorted by time */
+
+	for (auto & [ note, gui ] : _events) {
+		if (gui->selected()) {
+			selected.push_back (note);
+			had_selected = true;
+		}
+	}
+
+	if (allow_all_if_none_selected && !had_selected) {
+		for (auto & [ note, gui ] : _events) {
+			selected.push_back (note);
 		}
 	}
 }
