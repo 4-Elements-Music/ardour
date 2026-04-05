@@ -331,6 +331,8 @@ class Pianoroll : public CueEditor
 
 	MidiInspector* midi_inspector;
 	void replace_chord (std::vector<int> intervals);
+	void invert_selected_chord (bool up);
+	void drop_selected_chord (std::vector<int> which_notes);
 
 	ARDOUR::Quantize* get_quantize_op ();
 };

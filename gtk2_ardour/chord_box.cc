@@ -304,11 +304,13 @@ ChordBox::build_western ()
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
 	but->set_text (_("Move Up"));
+	but->signal_clicked.connect ([this]() { tet12_invert_chord (true); });
 	inversion_table.attach (*but, col, col+1, row, row+1);
 	col++;
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
 	but->set_text (_("Move Down"));
+	but->signal_clicked.connect ([this]() { tet12_invert_chord (false); });
 	inversion_table.attach (*but, col, col+1, row, row+1);
 	col = 0;
 	row++;
@@ -421,6 +423,12 @@ ChordBox::tet12_replace_chord (std::string const & name)
 	if (res != tet12_chords.end()) {
 		ReplaceChord (res->second); /* EMIT SIGNAL */
 	}
+}
+
+void
+ChordBox::tet12_invert_chord (bool up)
+{
+	InvertChord (up); /* EMIT SIGNAL */
 }
 
 void

@@ -1007,6 +1007,49 @@ MidiView::chord_is_selected () const
 }
 
 void
+MidiView::invert_selected_chord (bool up)
+{
+	if (!chord_is_selected()) {
+		return;
+	}
+
+	int root_pitch = 128;
+	int highest_pitch = 0;
+	std::shared_ptr<NoteType> root;
+	std::shared_ptr<NoteType> top;
+
+	for (auto const & sel : _selection) {
+		if (sel->note()->note() < root_pitch) {
+			root_pitch = sel->note ()->note();
+			root = sel->note();
+		}
+		if (sel->note()->note() > highest_pitch) {
+			highest_pitch = sel->note()->note();
+			top = sel->note ();
+		}
+	}
+
+	int delta = abs (highest_pitch - root_pitch);
+	int octaves = 1 + (delta / 12);
+
+	if (up) {
+		start_note_diff_command (_("invert chord (up)"));
+		_note_diff_command->change (root, MidiModel::NoteDiffCommand::NoteNumber, root->note() + (12 * octaves));
+	} else {
+		start_note_diff_command (_("invert chord (down)"));
+		_note_diff_command->change (top, MidiModel::NoteDiffCommand::NoteNumber, top->note() - (12 * octaves));
+	}
+
+	apply_note_diff ();
+	hide_verbose_cursor ();
+}
+
+void
+MidiView::drop_selected_chord (std::vector<int> const & which_notes)
+{
+}
+
+void
 MidiView::replace_chord (std::vector<int> const & intervals)
 {
 	if (_selection.size() != intervals.size()) {

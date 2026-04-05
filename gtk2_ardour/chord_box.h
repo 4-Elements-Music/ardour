@@ -45,6 +45,8 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	bool get_midi_chord (int root_pitch, IntervalSet& pitches) const;
 
 	sigc::signal<void, IntervalSet> ReplaceChord;
+	sigc::signal<void, bool> InvertChord;
+	sigc::signal<void, std::vector<int> > DropChord;
 
  private:
 	void pack (Gtk::Widget&);
@@ -77,6 +79,8 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	void tet12_chord_chosen (std::string const &);
 	void tet12_replace_chord (std::string const &);
 	void tet12_modify_chord (std::string const &);
+	void tet12_invert_chord (bool);
+	void tet12_drop_chord (std::vector<int> const &);
 
 	void register_actions ();
 

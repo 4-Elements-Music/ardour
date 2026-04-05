@@ -502,6 +502,7 @@ Pianoroll::build_canvas ()
 
 	midi_inspector = manage (new MidiInspector (*this));
 	midi_inspector->chord_box->ReplaceChord.connect ([this](std::vector<int> intervals) { replace_chord (intervals); });
+	midi_inspector->chord_box->InvertChord.connect ([this](bool up) { invert_selected_chord (up); });
 
 	_hpacker.pack_start (*midi_inspector, false, false);
 	_hpacker.reorder_child (*midi_inspector, 0);
@@ -513,9 +514,35 @@ Pianoroll::build_canvas ()
 void
 Pianoroll::replace_chord (std::vector<int> intervals)
 {
+	EC_LOCAL_TEMPO_SCOPE;
+
 	if (_active_view) {
 		_active_view->replace_chord (intervals);
 	}
+}
+
+void
+Pianoroll::invert_selected_chord (bool up)
+{
+	if (_editing_policy == ActiveView) {
+
+		if (!_active_view) {
+			return;
+		}
+
+		_active_view->invert_selected_chord (up);
+
+	} else if (_editing_policy == AllViews) {
+
+		for (auto & [region,view] : region_view_map) {
+			view->invert_selected_chord (up);
+		}
+	}
+}
+
+void
+Pianoroll::drop_selected_chord (std::vector<int> which_notes)
+{
 }
 
 Quantize*

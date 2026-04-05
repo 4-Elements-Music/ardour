@@ -226,6 +226,8 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	void   duplicate_selection ();
 
 	void replace_chord (std::vector<int> const & intervals);
+	void invert_selected_chord (bool up);
+	void drop_selected_chord (std::vector<int> const & which_notes);
 
 	Temporal::Beats earliest_in_selection ();
 	void move_selection(Temporal::timecnt_t const & dx, double dy, double cumulative_dy);
