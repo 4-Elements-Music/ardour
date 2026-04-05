@@ -75,7 +75,7 @@ ScaleDialog::ScaleDialog ()
 	culture_dropdown.add_menu_elem (MenuElem (_("SE Asian Archipelago"), sigc::bind (sigc::mem_fun (*this, &ScaleDialog::fill_dropdowns), ARDOUR::SEAsia)));
 	culture_dropdown.add_menu_elem (MenuElem (_("China"), sigc::bind (sigc::mem_fun (*this, &ScaleDialog::fill_dropdowns), ARDOUR::China)));
 
-	fill_dropdowns (ARDOUR::WesternEurope12TET);
+	culture_dropdown.set_active (0); 
 
 	root_mode_box.pack_start (root_dropdown, true, false);
 	root_mode_box.pack_start (mode_dropdown, true, false);
@@ -165,14 +165,8 @@ ScaleDialog::fill_dropdowns (ARDOUR::MusicalModeCulture culture)
 	using namespace Gtk::Menu_Helpers;
 	using namespace ARDOUR;
 
-	if (culture_dropdown.get_active_row_number() == (int) culture) {
-		return;
-	}
-
 	root_dropdown.clear_items ();
 	mode_dropdown.clear_items ();
-
-	culture_dropdown.set_active ((int) culture);
 
 	switch (culture) {
 	case WesternEurope12TET:
