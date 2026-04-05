@@ -180,6 +180,8 @@ class Pianoroll : public CueEditor
 
 	bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const;
 
+	void midi_view_selection_changed ();
+
   protected:
 	Temporal::timepos_t snap_to_grid (Temporal::timepos_t const & start,
 	                                  Temporal::RoundMode   direction,
@@ -335,4 +337,5 @@ class Pianoroll : public CueEditor
 	void drop_selected_chord (std::vector<int> which_notes);
 
 	ARDOUR::Quantize* get_quantize_op ();
+	sigc::connection selection_connection;
 };

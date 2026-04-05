@@ -264,6 +264,8 @@ ChordBox::build_western ()
 	inversion_label.set_alignment (0.0, 0.5);
 	drop_label.set_alignment (0.0, 0.5);
 
+	name_display.modify_font (UIConfiguration::instance().get_LargeBoldFont());
+
 	western_vbox.pack_start (name_display, false, false);
 	western_vbox.pack_start (triad_label, false, false);
 	western_vbox.pack_start (triad_table, false, false);
@@ -284,6 +286,12 @@ void
 ChordBox::set_scale_provider (ScaleProvider const * sp)
 {
 	_scale_provider = sp;
+}
+
+void
+ChordBox::show_chord (std::string const & name)
+{
+	name_display.set_text (name);
 }
 
 bool

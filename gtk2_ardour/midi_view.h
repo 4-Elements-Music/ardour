@@ -321,6 +321,7 @@ class MidiView : public virtual sigc::trackable, public LineMerger
 	Selection const & selection () const {
 		return _selection;
 	}
+	sigc::signal<void> SelectionChanged;
 
 	void selection_as_notelist (Notes& selected, bool allow_all_if_none_selected = false);
 	void selection_as_notevector (std::vector<std::shared_ptr<NoteType> > & selected, bool allow_all_if_none_selected = false);

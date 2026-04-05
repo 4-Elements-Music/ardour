@@ -1045,6 +1045,7 @@ MidiView::invert_selected_chord (bool up)
 	selection_as_notevector (notes);
 	start_playing_midi_chord (notes);
 	hide_verbose_cursor ();
+	SelectionChanged ();
 }
 
 void
@@ -1083,6 +1084,7 @@ MidiView::drop_selected_chord (std::vector<int> const & which_notes)
 	selection_as_notevector (sn);
 	start_playing_midi_chord (sn);
 	hide_verbose_cursor ();
+	SelectionChanged ();
 }
 
 void
@@ -1118,6 +1120,7 @@ MidiView::replace_chord (std::vector<int> const & intervals)
 	std::vector<std::shared_ptr<NoteType> > notes;
 	selection_as_notevector (notes);
 	start_playing_midi_chord (notes);
+	SelectionChanged ();
 	hide_verbose_cursor ();
 }
 
@@ -1140,6 +1143,7 @@ MidiView::clear_events ()
 	_patch_changes.clear();
 	_sys_exes.clear();
 	_optimization_iterator = _events.end();
+	SelectionChanged ();
 }
 
 void
@@ -2584,6 +2588,7 @@ MidiView::note_deleted (NoteBase* cne)
 	}
 
 	_selection.erase (cne);
+	SelectionChanged ();
 }
 
 void
@@ -2610,6 +2615,7 @@ MidiView::delete_selection()
 	apply_note_diff ();
 
 	hide_verbose_cursor ();
+	SelectionChanged ();
 }
 
 void
@@ -2620,6 +2626,7 @@ MidiView::delete_note (std::shared_ptr<NoteType> n)
 	apply_note_diff ();
 
 	hide_verbose_cursor ();
+	SelectionChanged ();
 }
 
 void
@@ -2665,6 +2672,8 @@ MidiView::select_all_notes ()
 	for (auto & [ note, gui ] : _events) {
 		add_to_selection (gui);
 	}
+
+	SelectionChanged ();
 }
 
 void
@@ -2681,6 +2690,8 @@ MidiView::select_range (timepos_t const & start, timepos_t const & end)
 			add_to_selection (gui);
 		}
 	}
+
+	SelectionChanged ();
 }
 
 void
@@ -2718,6 +2729,8 @@ MidiView::extend_selection ()
 			add_to_selection (gui);
 		}
 	}
+
+	SelectionChanged ();
 }
 
 void
@@ -2731,6 +2744,8 @@ MidiView::invert_selection ()
 			add_to_selection (gui);
 		}
 	}
+
+	SelectionChanged ();
 }
 
 /** Used for selection undo/redo.
@@ -2751,6 +2766,7 @@ MidiView::select_notes (list<Evoral::event_id_t> notes, bool allow_audition)
 			_pending_note_selection.insert(*n);
 		}
 	}
+	SelectionChanged ();
 }
 
 void
@@ -2790,6 +2806,7 @@ MidiView::select_matching_notes (uint8_t notenum, uint16_t channel_mask, bool ad
 			/* only note previously selected is the one we are
 			 * reselecting. treat this as cancelling the selection.
 			 */
+			SelectionChanged ();
 			return;
 		}
 	}
@@ -2828,6 +2845,7 @@ MidiView::select_matching_notes (uint8_t notenum, uint16_t channel_mask, bool ad
 		add = true; // we need to add all remaining matching notes, even if the passed in value was false (for "set")
 
 	}
+	SelectionChanged ();
 }
 
 void
@@ -2855,6 +2873,7 @@ MidiView::toggle_matching_notes (uint8_t notenum, uint16_t channel_mask)
 			}
 		}
 	}
+	SelectionChanged ();
 }
 
 void
@@ -2867,6 +2886,7 @@ MidiView::note_selected (NoteBase* ev, bool add, bool extend)
 		}
 
 		add_to_selection (ev);
+		SelectionChanged ();
 		return;
 
 	} else {
@@ -2902,12 +2922,15 @@ MidiView::note_selected (NoteBase* ev, bool add, bool extend)
 			}
 		}
 	}
+
+	SelectionChanged ();
 }
 
 void
 MidiView::note_deselected(NoteBase* ev)
 {
 	remove_from_selection (ev);
+	SelectionChanged ();
 }
 
 void
@@ -2949,6 +2972,8 @@ MidiView::update_drag_selection(timepos_t const & start, timepos_t const & end, 
 	}
 
 	add_control_points_to_selection (start, end, gy0, gy1);
+
+	SelectionChanged ();
 }
 
 void
@@ -2972,6 +2997,8 @@ MidiView::update_vertical_drag_selection (double y1, double y2, bool extend)
 			remove_from_selection (gui);
 		}
 	}
+
+	SelectionChanged ();
 }
 
 void
@@ -3099,6 +3126,8 @@ MidiView::move_selection (timecnt_t const & dx_qn, double dy, double cumulative_
 		}
 	}
 
+	SelectionChanged ();
+
 	if (dy && !_selection.empty() && !_no_sound_notes && UIConfiguration::instance().get_sound_midi_notes()) {
 
 		if (to_play.size() > 1) {
@@ -3196,6 +3225,8 @@ MidiView::move_copies (timecnt_t const & dx_qn, double dy, double cumulative_dy)
 			sus->set_x1 (n->item()->canvas_to_item (ArdourCanvas::Duple (len_dx, 0)).x);
 		}
 	}
+
+	SelectionChanged ();
 
 	if (dy && !_copy_drag_events.empty() && !_no_sound_notes && UIConfiguration::instance().get_sound_midi_notes()) {
 
@@ -3358,6 +3389,8 @@ MidiView::note_dropped (NoteBase *, timecnt_t const & d_qn, int8_t dnote, bool c
 	// care about notes being moved beyond the upper/lower bounds on the canvas
 	_midi_context.maybe_extend_note_range (lowest_note_in_selection);
 	_midi_context.maybe_extend_note_range (highest_note_in_selection);
+
+	SelectionChanged ();
 }
 
 /** @param x Pixel relative to the region position.
@@ -4185,6 +4218,8 @@ MidiView::transpose (bool up, bool fine, bool allow_smush)
 			start_playing_midi_chord (to_play);
 		}
 	}
+
+	SelectionChanged ();
 }
 
 void

@@ -137,7 +137,8 @@ Pianoroll::~Pianoroll ()
 
 	view_connections.drop_connections ();
 	_update_connection.disconnect ();
-
+	selection_connection.disconnect ();
+	
 	drop_grid (); // unparent gridlines before deleting _canvas_viewport
 
 	delete bg;
@@ -1684,6 +1685,7 @@ Pianoroll::set_region (std::shared_ptr<ARDOUR::Region> region)
 	_active_view = nullptr;
 	view_connections.drop_connections ();
 	_update_connection.disconnect ();
+	selection_connection.disconnect ();
 
 	if (!region) {
 		return;
@@ -1714,6 +1716,7 @@ Pianoroll::set_region (std::shared_ptr<ARDOUR::Region> region)
 	}
 
 	_active_view->VisibleChannelChanged.connect (view_connections, invalidator (*this), std::bind (&Pianoroll::visible_channel_changed, this), gui_context());
+	selection_connection = _active_view->SelectionChanged.connect ([this]() { midi_view_selection_changed (); });
 
 	set_visible_channel (_active_view->pick_visible_channel());
 
@@ -2155,6 +2158,8 @@ void
 Pianoroll::session_going_away ()
 {
 	_update_connection.disconnect ();
+	selection_connection.disconnect ();
+
 	CueEditor::session_going_away ();
 }
 
@@ -2478,6 +2483,31 @@ Pianoroll::midiviews_from_region_selection (RegionSelection const &) const
 	}
 
 	return mv;
+}
+
+void
+Pianoroll::midi_view_selection_changed ()
+{
+	if (!_active_view) {
+		midi_inspector->chord_box->show_chord ("");
+		return;
+	}
+
+	MidiView::Selection const & sel (_active_view->selection());
+	if (sel.size() < 2) {
+		midi_inspector->chord_box->show_chord ("");
+		return;
+	}
+
+	std::vector<int> pitches;
+
+	for (auto const & s : sel) {
+		pitches.push_back (s->note()->note());
+	}
+
+	std::sort (pitches.begin(), pitches.end());
+	std::string name = midi_inspector->chord_box->identify_chord (pitches);
+	midi_inspector->chord_box->show_chord (name);
 }
 
 bool

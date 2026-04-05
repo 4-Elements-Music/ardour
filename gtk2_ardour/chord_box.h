@@ -43,6 +43,7 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	typedef std::vector<int> IntervalSet;
 
 	bool get_midi_chord (int root_pitch, IntervalSet& pitches) const;
+	void show_chord (std::string const & name);
 
 	sigc::signal<void, IntervalSet> ReplaceChord;
 	sigc::signal<void, bool> InvertChord;
