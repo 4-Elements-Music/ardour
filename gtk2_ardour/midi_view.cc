@@ -1047,6 +1047,36 @@ MidiView::invert_selected_chord (bool up)
 void
 MidiView::drop_selected_chord (std::vector<int> const & which_notes)
 {
+	if (!chord_is_selected()) {
+		return;
+	}
+
+	if (which_notes.empty()) {
+		return;
+	}
+
+	/* which_notes must be sorted */
+
+	if (which_notes.back() >= (int) _selection.size()) {
+		return;
+	}
+
+	Evoral::Sequence<Temporal::Beats>::NoteNumberComparator sorter;
+	std::vector<std::shared_ptr<NoteType> > notes;
+
+	for (auto & s : _selection) {
+		notes.push_back (s->note());
+	}
+
+	std::sort (notes.begin(), notes.end(), sorter);
+
+	start_note_diff_command (_("drop notes"));
+	for (auto & n : which_notes) {
+		std::shared_ptr<NoteType> note (notes[n]);
+		_note_diff_command->change (note, MidiModel::NoteDiffCommand::NoteNumber, note->note() - 12);
+	}
+	apply_note_diff ();
+	hide_verbose_cursor ();
 }
 
 void

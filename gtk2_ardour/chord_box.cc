@@ -326,17 +326,20 @@ ChordBox::build_western ()
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
 	but->set_text (_("Drop 2"));
+	but->signal_clicked.connect ([this]() { tet12_drop_chord ({ 1 }); });
 	drop_table.attach (*but, col, col+1, row, row+1);
 	col++;
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
 	but->set_text (_("Drop 3"));
+	but->signal_clicked.connect ([this]() { tet12_drop_chord ({ 2 }); });
 	drop_table.attach (*but, col, col+1, row, row+1);
 	col = 0;
 	row++;
 	but = manage (new ArdourButton);
 	but->set_elements (ArdourButton::Element (ArdourButton::Edge|ArdourButton::Body|ArdourButton::Text));
 	but->set_text (_("Drop 2 + 4"));
+	but->signal_clicked.connect ([this]() { tet12_drop_chord ({ 1, 3 }); });
 	drop_table.attach (*but, col, col+2, row, row+1);
 	col = 0;
 	row++;
@@ -429,6 +432,12 @@ void
 ChordBox::tet12_invert_chord (bool up)
 {
 	InvertChord (up); /* EMIT SIGNAL */
+}
+
+void
+ChordBox::tet12_drop_chord (std::vector<int> const & which_notes)
+{
+	DropChord (which_notes);
 }
 
 void
