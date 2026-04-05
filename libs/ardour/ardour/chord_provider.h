@@ -80,6 +80,11 @@ class ChordProvider
 		sharp5 = MinorSixth,
 		dom7 = MinorSeventh,
 		dblflat7 = MajorSixth,
+
+		/* aliases set three */
+
+		AugmentedFifth = 8,
+		DiminishedFifth = 6,
 	};
 };
 
