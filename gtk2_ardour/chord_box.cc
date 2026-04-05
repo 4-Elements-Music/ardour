@@ -19,6 +19,7 @@
 #include "gtkmm2ext/actions.h"
 
 #include "chord_box.h"
+#include "ui_config.h"
 
 #include "pbd/i18n.h"
 
@@ -146,59 +147,29 @@ ChordBox::build_western ()
 	int row = 0;
 	int col = 0;
 
-	butl = manage (new ArdourButton (_("maj")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("maj")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("min")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("min")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
 
-	butl = manage (new ArdourButton (_("sus4")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus4")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus4")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("sus2")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus2")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("sus2")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+	std::vector<std::string> triads ({ _("maj"), _("min"), _("sus4"), _("sus2"), _("dim"), _("aug")});
 
-	butl = manage (new ArdourButton (_("dim")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("dim")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("dim")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("aug")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("aug")); });
-	butr = manage (new ArdourButton (ArdourButton::VectorIcon, true));
-	butr->signal_clicked.connect ([this]() { tet12_chord_chosen (_("aug")); });
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	triad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+	for (auto & s : triads) {
+
+		butl = manage (new ArdourButton (s));
+		butl->signal_clicked.connect ([this,s]() { tet12_replace_chord (s); });
+
+		butr = manage (new ArdourButton ("", ArdourButton::default_elements, true));
+		butr->set_icon (ArdourIcon::ToolDraw);
+		butr->set_elements (ArdourButton::Element (ArdourButton::Body|ArdourButton::Edge|ArdourButton::VectorIcon));
+		butr->set_active_color (UIConfiguration::instance().color ("alert:yellow"));
+		butr->signal_clicked.connect ([this,s]() { tet12_chord_chosen (s); });
+
+		dbut = new DoubleButton (*butl, *butr);
+		triad_table.attach (*dbut, col, col+1, row, row+1);
+
+		col++;
+		if (col % 2 == 0) {
+			col = 0;
+			row++;
+		}
+	}
 
 	triad_table.set_homogeneous (true);
 	triad_table.set_col_spacings (6);
@@ -208,85 +179,28 @@ ChordBox::build_western ()
 	row = 0;
 	col = 0;
 
-	butl = manage (new ArdourButton (_("maj7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+	std::vector<std::string> tetrads ({ _("maj7"), _("7"), _("min7"), _("min6"), _("min7b5"), _("dim7"), _("sus2/7"), _("sus4/7"), _("full dim"), _("maj7#5")});
 
-	butl = manage (new ArdourButton (_("min7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("min6")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min6")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+	for (auto & s : tetrads) {
 
-	butl = manage (new ArdourButton (_("min7/b5")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("min7/b5")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("minj7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("minj7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+		butl = manage (new ArdourButton (s));
+		butl->signal_clicked.connect ([this,s]() { tet12_replace_chord (s); });
 
-	butl = manage (new ArdourButton (_("sus4/7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus4/7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("sus2/7")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("sus2/7")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+		butr = manage (new ArdourButton ("", ArdourButton::default_elements, true));
+		butr->set_icon (ArdourIcon::ToolDraw);
+		butr->set_elements (ArdourButton::Element (ArdourButton::Body|ArdourButton::Edge|ArdourButton::VectorIcon));
+		butr->set_active_color (UIConfiguration::instance().color ("alert:yellow"));
+		butr->signal_clicked.connect ([this,s]() { tet12_chord_chosen (s); });
 
-	butl = manage (new ArdourButton (_("full dim")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("full dim")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col++;
-	butl = manage (new ArdourButton (_("maj7/#5")));
-	butl->signal_clicked.connect ([this]() { tet12_replace_chord (_("maj7/#5")); });
-	butr = manage (new ArdourButton);
-	butr->set_icon (ArdourIcon::ToolDraw);
-	dbut = new DoubleButton (*butl, *butr);
-	tetrad_table.attach (*dbut, col, col+1, row, row+1);
-	col = 0;
-	row++;
+		dbut = new DoubleButton (*butl, *butr);
+		tetrad_table.attach (*dbut, col, col+1, row, row+1);
+
+		col++;
+		if (col % 2 == 0) {
+			col = 0;
+			row++;
+		}
+	}
 
 	tetrad_table.set_homogeneous (true);
 	tetrad_table.set_col_spacings (6);
