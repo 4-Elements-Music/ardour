@@ -17,8 +17,11 @@
  */
 
 #include <algorithm>
+#include <cassert>
 
 #include "ardour/chord_provider.h"
+#include "ardour/parameter_descriptor.h"
+
 #include "pbd/i18n.h"
 
 using namespace ARDOUR;
@@ -26,14 +29,34 @@ using namespace ARDOUR;
 ChordProvider::ChordNameToIntervals ChordProvider::tet12_chords;
 ChordProvider::IntervalsToChordName ChordProvider::tet12_names;
 
+static int64_t
+hash_intervals (ChordProvider::Intervals const & intervals)
+{
+	assert (!intervals.empty());
+
+	const int64_t max_interval = 23; /* maximum possible interval */
+	int64_t mult = max_interval;
+	int64_t ret = intervals[0];
+
+	for (auto n = 1U; n < intervals.size(); ++n) {
+		assert (intervals[n] < max_interval);
+
+		ret += mult * intervals[n];
+		mult *= max_interval;
+	}
+
+	return ret;
+}
+
 template<typename...Names>
 void
 ChordProvider::register_12tet_chord (Intervals const & intervals, std::string const & canonical_name, Names...chord_names)
 {
-	tet12_names.insert (std::make_pair (intervals, canonical_name));
-	tet12_chords[canonical_name] = intervals;
+	tet12_names.insert (std::make_pair (hash_intervals (intervals), canonical_name));
+	tet12_chords.insert (std::make_pair (canonical_name, intervals));
+
 	for (auto & chord_name : { chord_names... } ) {
-		tet12_chords[chord_name] = intervals;
+		tet12_chords.insert (std::make_pair (chord_name, intervals));
 	}
 }
 
@@ -71,8 +94,6 @@ ChordProvider::build_12tet_chords ()
 	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MinorSeventh, MajorNinth},     _("Dominant 9th"), _("dom9"));
 	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MajorSeventh, MajorNinth},     _("Major 9th"), _("9"), _("maj9"));
 	register_12tet_chord ({Unison, MinorThird, PerfectFifth, MinorSeventh, MajorNinth},     _("Minor 9th"), _("min9"));
-	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MinorSeventh, MajorNinth, P11}, _("Dominant 11th"), _("dom11"));
-	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MajorSeventh, MajorNinth, M13}, _("Major 13th"), _("maj13"));
 	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MajorNinth},                   _("Add9"), _("add9"));
 	register_12tet_chord ({Unison, MinorThird, PerfectFifth, MajorNinth},                   _("Minor Add9"), _("min/9"));
 	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MajorSixth},                   _("Major 6th"), _("maj6"));
@@ -81,77 +102,98 @@ ChordProvider::build_12tet_chords ()
 	register_12tet_chord ({Unison, MajorSecond, PerfectFifth, MajorSeventh},                _("Sus2/7"), _("sus2/7"));
 	register_12tet_chord ({Unison, PerfectFourth, PerfectFifth, MajorSeventh},              _("Sus4/7"), _("sus4/7"));
 
+	/* Hexachords */
+
+	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MinorSeventh, MajorNinth, P11}, _("Dominant 11th"), _("dom11"));
+	register_12tet_chord ({Unison, MajorThird, PerfectFifth, MajorSeventh, MajorNinth, M13}, _("Major 13th"), _("maj13"));
+
 }
 
-static std::string
-lookup_with_inversions (ChordProvider::Intervals const & intervals, ChordProvider::IntervalsToChordName const & table, bool allow_inversions)
+static inline
+int
+pitch_to_pitch_class (int pitch)
 {
-	auto it = table.find (intervals);
-	if (it != table.end()) {
-		return it->second;
-	}
+	return pitch % 12;
+}
 
-	if (!allow_inversions) {
-		return "";
-	}
+static inline
+int
+canonical_interval (int interval)
+{
+	return (((interval % 12) + 12) % 12);
+}
 
-	for (size_t i = 1; i < intervals.size(); i++) {
-		int newRoot = intervals[i];
-		std::vector<int> inverted;
-		for (int v : intervals) {
-			inverted.push_back(((v - newRoot) % 12 + 12) % 12);
-		}
-		std::sort (inverted.begin(), inverted.end());
-		auto inv_it = table.find(inverted);
-		if (inv_it != table.end()) {
-			return inv_it->second + " (inversion)";
+static std::vector<int>
+to_pitch_class (std::vector<int> const & pitches)
+{
+	/* It migbt seem obvious to use a std::set<> here, but the pitch
+	   classes we return must be in the same order as the pitches we are
+	   provided, which std::set<> makes hard to do.
+	*/
+	std::vector<int> v;
+	int mask = 0;
+	for (int n : pitches) {
+		int pc = pitch_to_pitch_class (n);
+		if (!(mask & (1<<pc))) {
+			v.push_back (pc);
+			mask |= (1<<pc);
 		}
 	}
-	return "";
+	return v;
+}
+
+static ChordProvider::Intervals
+to_intervals (std::vector<int> const & pcs, int root)
+{
+	ChordProvider::Intervals iv;
+	for (int pc : pcs) {
+		int d = canonical_interval (pc - root);
+		iv.push_back (d);
+	}
+	return iv;
 }
 
 std::string
-ChordProvider::identify_chord (Intervals const & raw_intervals)
+ChordProvider::identify_chord (std::vector<int> const & pitches)
 {
-	if (raw_intervals.empty()) {
-		return "Unknown (no notes)";
+	if (pitches.empty()) {
+		return "";
+	}
+
+	if (pitches.size() < 2) {
+		return _("Not a chord");
+		return "";
 	}
 
 	if (tet12_names.empty() ){
 		build_12tet_chords ();
 	}
 
-	// Pass 1: preserve extended intervals, shift lowest note to root 0
-	{
-		auto intervals = raw_intervals;
-		std::sort (intervals.begin(), intervals.end());
-		intervals.erase (std::unique (intervals.begin(), intervals.end()), intervals.end());
-		int root = intervals[0];
-		for (auto& i : intervals) {
-			i -= root;
-		}
-		auto result = lookup_with_inversions (intervals, tet12_names, false);
-		if (!result.empty()) {
-			return result;
+	int bass = *std::min_element (pitches.begin(), pitches.end());
+	int bass_class = pitch_to_pitch_class (bass);
+	std::vector<int> pcs = to_pitch_class (pitches);
+
+	for (int root : pcs) {
+		auto intervals = to_intervals (pcs, root);
+		int64_t hashed = hash_intervals (intervals);;
+
+		for (auto const & [hashed_intervals,name] : tet12_names) {
+
+			if (hashed_intervals == hashed) {
+				std::string ret;
+				/* translate note names but no enharmonics */
+				ret = ParameterDescriptor::midi_note_name (root, true, false, false) + ' ';
+				ret += name;
+
+				if (bass_class != root) {
+					/* slash chord */
+					ret += '/';
+					ret += ParameterDescriptor::midi_note_name (bass_class, true, false, false);
+				}
+				return ret;
+			}
 		}
 	}
 
-	// Pass 2: mod-12 normalize, then try direct + inversions
-	{
-		auto intervals = raw_intervals;
-		for (auto& i : intervals) {
-			i = ((i % 12) + 12) % 12;
-		}
-		std::sort (intervals.begin(), intervals.end());
-		intervals.erase (std::unique (intervals.begin(), intervals.end()), intervals.end());
-		if (intervals[0] != 0) {
-			intervals.insert (intervals.begin(), 0);
-		}
-		auto result = lookup_with_inversions (intervals, tet12_names, true);
-		if (!result.empty()) {
-			return result;
-		}
-	}
-
-	return "Unknown chord";
+	return _("Unknown");
 }

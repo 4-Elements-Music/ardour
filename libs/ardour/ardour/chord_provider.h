@@ -37,9 +37,11 @@ class ChordProvider
 	virtual bool get_midi_chord (int root_pitch, Intervals& pitches) const = 0;
 	virtual void set_scale_provider (ScaleProvider const * sp) {}
 
-	typedef std::map<Intervals, std::string> IntervalsToChordName;
+	/* maps a hash of Intervals to a name */
+	typedef std::map<int64_t, std::string> IntervalsToChordName;
 	static IntervalsToChordName tet12_names;
 
+	/* maps (potentiall multiple) names to Intervals */
 	typedef std::map<std::string,Intervals> ChordNameToIntervals;
 	static ChordNameToIntervals tet12_chords;
 
