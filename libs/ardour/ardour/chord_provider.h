@@ -32,13 +32,21 @@ class ChordProvider
 	ChordProvider () {}
 	virtual ~ChordProvider() {}
 
-	virtual bool get_midi_chord (int root_pitch, std::vector<int>& pitches) const = 0;
+	typedef std::vector<int> Intervals;
+
+	virtual bool get_midi_chord (int root_pitch, Intervals& pitches) const = 0;
 	virtual void set_scale_provider (ScaleProvider const * sp) {}
 
-	typedef std::map<std::string,std::vector<int> > TET12Chords;
-	static TET12Chords tet12_chords;
+	typedef std::map<Intervals, std::string> IntervalsToChordName;
+	static IntervalsToChordName tet12_names;
+
+	typedef std::map<std::string,Intervals> ChordNameToIntervals;
+	static ChordNameToIntervals tet12_chords;
+
 	static void build_12tet_chords ();
-	template<typename...Names> static void register_12tet_chord (std::vector<int> const intervals, Names...chord_names);
+	template<typename...Names> static void register_12tet_chord (Intervals const & intervals, std::string const & canonical_name, Names...chord_names);
+
+	std::string identify_chord (Intervals const &);
 
 	enum TET12Intervals {
 		Unison = 0,
@@ -85,6 +93,17 @@ class ChordProvider
 
 		AugmentedFifth = 8,
 		DiminishedFifth = 6,
+		DiminishedSeventh = 9,
+
+		/* aliases set four */
+
+		MajorNinth = 14, // Octave + 2
+		M9 = 14,
+		PerfectEleventh = 17,
+		P11 = 17,
+		MajorThirteenth = 21, // Octave + 9
+		M13 = 21,
+		
 	};
 };
 
