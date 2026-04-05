@@ -135,9 +135,6 @@ ChordBox::build_western ()
 	using namespace Menu_Helpers;
 	using namespace ArdourWidgets;
 
-	root_dropdown.add_menu_elem (MenuElem (S_("Note|C"), [this]() { set_root (0); }));
-	root_dropdown.set_active (0);
-
 	triad_table.resize (3, 2);
 	tetrad_table.resize (5, 2);
 	inversion_table.resize (1, 2);
@@ -353,7 +350,7 @@ ChordBox::build_western ()
 	inversion_label.set_alignment (0.0, 0.5);
 	drop_label.set_alignment (0.0, 0.5);
 
-	western_vbox.pack_start (root_dropdown, false, false);
+	western_vbox.pack_start (name_display, false, false);
 	western_vbox.pack_start (triad_label, false, false);
 	western_vbox.pack_start (triad_table, false, false);
 	western_vbox.pack_start (tetrad_label, false, false);
@@ -367,20 +364,6 @@ ChordBox::build_western ()
 	western_vbox.set_spacing (6);
 
 	pack_start (western_vbox);
-}
-
-void
-ChordBox::set_root (int num)
-{
-	if (root_dropdown.get_active_row_number() != num) {
-		root_dropdown.set_active (num);
-	}
-}
-
-int
-ChordBox::get_root () const
-{
-	return 0;
 }
 
 void

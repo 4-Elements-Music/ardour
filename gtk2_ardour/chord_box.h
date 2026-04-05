@@ -53,10 +53,9 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 
 	ArdourWidgets::ArdourDropdown culture_button;
 	std::string target_chord;
+	Gtk::Label name_display;
 
 	/* Western */
-
-	ArdourWidgets::ArdourDropdown root_dropdown;
 
 	Gtk::Table triad_table;
 	Gtk::Table tetrad_table;
@@ -70,9 +69,6 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	Gtk::Label drop_label;
 
 	Gtk::VBox western_vbox;
-
-	void set_root (int);
-	int  get_root () const;
 
 	void build_western ();
 
