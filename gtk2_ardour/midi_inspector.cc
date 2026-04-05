@@ -34,5 +34,29 @@ MidiInspector::MidiInspector (EditingContext& ec)
 	pack_start (chord_expander, false, false);
 	pack_start (quantize_expander, false, false);
 
+	Gtk::Requisition max;
+	max.width = -1;
+	max.height = -1;
+	Gtk::Requisition req;
+
+	chord_box->size_request (req);
+	if (req.width > 0 && req.width > max.width) {
+		max.width = req.width;
+	}
+
+	if (req.height > 0 && req.height > max.height) {
+		max.height = req.height;
+	}
+
+	quantize_widget->size_request (req);
+	if (req.width > 0 && req.width > max.width) {
+		max.width = req.width;
+	}
+
+	if (req.height > 0 && req.height > max.height) {
+		max.height = req.height;
+	}
+
 	set_border_width (12);
+	set_size_request (max.width, max.height);
 }

@@ -505,8 +505,16 @@ Pianoroll::build_canvas ()
 	midi_inspector->chord_box->InvertChord.connect ([this](bool up) { invert_selected_chord (up); });
 	midi_inspector->chord_box->DropChord.connect ([this](std::vector<int> which_notes) { drop_selected_chord (which_notes); });
 
-	_hpacker.pack_start (*midi_inspector, false, false);
-	_hpacker.reorder_child (*midi_inspector, 0);
+	Gtk::ScrolledWindow* sw (manage (new Gtk::ScrolledWindow));
+	sw->add (*midi_inspector);
+	sw->set_policy (Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+
+	Gtk::Requisition req;
+	midi_inspector->size_request (req);
+	sw->set_size_request (req.width, -1);
+
+	_hpacker.pack_start (*sw, false, false);
+	_hpacker.reorder_child (*sw, 0);
 
 	_toolbox.pack_start (_canvas_viewport, true, true);
 	_toolbox.reorder_child (_canvas_viewport, 1);
