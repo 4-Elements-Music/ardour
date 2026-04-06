@@ -537,6 +537,7 @@ class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider,
 	Glib::RefPtr<Gtk::ActionGroup> length_actions;
 	Glib::RefPtr<Gtk::ActionGroup> channel_actions;
 	Glib::RefPtr<Gtk::ActionGroup> velocity_actions;
+	Glib::RefPtr<Gtk::ActionGroup> chord_actions;
 	Glib::RefPtr<Gtk::ActionGroup> zoom_actions;
 
 	virtual void load_shared_bindings ();
@@ -559,7 +560,9 @@ class EditingContext : public ARDOUR::SessionHandlePtr, public AxisViewProvider,
 	std::map<Editing::ZoomFocus, Glib::RefPtr<Gtk::RadioAction> > zoom_focus_actions;
 	std::map<int, Glib::RefPtr<Gtk::RadioAction> > draw_velocity_actions;
 	std::map<int, Glib::RefPtr<Gtk::RadioAction> > draw_channel_actions;
+	std::map<int, Glib::RefPtr<Gtk::RadioAction> > draw_chord_actions;
 
+	void draw_chord_chosen (int);
 	void draw_channel_chosen (int);
 	void draw_velocity_chosen (int);
 	void draw_length_chosen (Editing::GridType);
