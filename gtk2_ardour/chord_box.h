@@ -31,10 +31,12 @@ namespace ARDOUR {
 	class ScaleProvider;
 }
 
+class EditingContext;
+
 class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 {
   public:
-	ChordBox ();
+	ChordBox (EditingContext&);
 	~ChordBox();
 
 	void set_culture (ARDOUR::MusicalModeCulture);
@@ -50,6 +52,7 @@ class ChordBox : public Gtk::VBox, public ARDOUR::ChordProvider
 	sigc::signal<void, std::vector<int> > DropChord;
 
  private:
+	EditingContext& editing_context;
 	void pack (Gtk::Widget&);
 
 	ArdourWidgets::ArdourDropdown culture_button;

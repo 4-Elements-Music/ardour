@@ -18,6 +18,7 @@
 
 #include "gtkmm2ext/actions.h"
 
+#include "editing_context.h"
 #include "chord_box.h"
 #include "ui_config.h"
 
@@ -47,8 +48,9 @@ DoubleButton::DoubleButton (ArdourWidgets::ArdourButton & left, ArdourWidgets::A
 }
 
 
-ChordBox::ChordBox ()
-	: triad_label (_("3-Note Chords (Triads)"))
+ChordBox::ChordBox (EditingContext& ec)
+	: editing_context (ec)
+	, triad_label (_("3-Note Chords (Triads)"))
 	, tetrad_label (_("4-Note Chords (Tetrads)"))
 	, inversion_label (_("Inversions"))
 	, drop_label (_("Drop Notes"))
@@ -146,7 +148,7 @@ ChordBox::build_western ()
 	DoubleButton* dbut;
 	int row = 0;
 	int col = 0;
-
+	int action_num = 0;
 
 	std::vector<std::string> triads ({ _("maj"), _("min"), _("sus4"), _("sus2"), _("dim"), _("aug")});
 
@@ -159,7 +161,10 @@ ChordBox::build_western ()
 		butr->set_icon (ArdourIcon::ToolDraw);
 		butr->set_elements (ArdourButton::Element (ArdourButton::Body|ArdourButton::Edge|ArdourButton::VectorIcon));
 		butr->set_active_color (UIConfiguration::instance().color ("alert:yellow"));
-		butr->signal_clicked.connect ([this,s]() { tet12_chord_chosen (s); });
+		// butr->signal_clicked.connect ([this,s]() { tet12_chord_chosen (s); });
+		if (action_num < 10) {
+			butr->set_related_action (editing_context.draw_chord_action (action_num++));
+		}
 
 		dbut = new DoubleButton (*butl, *butr);
 		triad_table.attach (*dbut, col, col+1, row, row+1);

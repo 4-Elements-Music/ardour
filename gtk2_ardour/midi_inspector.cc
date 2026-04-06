@@ -25,7 +25,7 @@ MidiInspector::MidiInspector (EditingContext& ec)
 	: chord_expander (_("Chord Editing"))
 	, quantize_expander (_("Quantize"))
 {
-	chord_box = manage (new ChordBox);
+	chord_box = manage (new ChordBox (ec));
 	chord_expander.add (*chord_box);
 
 	quantize_widget = manage (new QuantizeWidget (ec));

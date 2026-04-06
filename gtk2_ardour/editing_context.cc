@@ -724,16 +724,16 @@ EditingContext::register_midi_actions (Bindings* midi_bindings, std::string cons
 	chord_actions = ActionManager::create_action_group (midi_bindings, prefix + X_("Chords"));
 	RadioAction::Group draw_chord_group;
 
-	draw_chord_actions[0] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 0));
-	draw_chord_actions[1] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 1));
-	draw_chord_actions[2] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 2));
-	draw_chord_actions[3] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 3));
-	draw_chord_actions[4] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 4));
-	draw_chord_actions[5] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 5));
-	draw_chord_actions[6] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 6));
-	draw_chord_actions[7] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 7));
-	draw_chord_actions[8] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 8));
-	draw_chord_actions[9] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 9));
+	draw_chord_actions[0] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-0"), _("Draw Chord 1"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 0));
+	draw_chord_actions[1] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-1"), _("Draw Chord 2"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 1));
+	draw_chord_actions[2] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-2"), _("Draw Chord 3"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 2));
+	draw_chord_actions[3] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-3"), _("Draw Chord 4"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 3));
+	draw_chord_actions[4] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-4"), _("Draw Chord 5"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 4));
+	draw_chord_actions[5] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-5"), _("Draw Chord 6"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 5));
+	draw_chord_actions[6] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-6"), _("Draw Chord 7"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 6));
+	draw_chord_actions[7] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-7"), _("Draw Chord 8"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 7));
+	draw_chord_actions[8] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-8"), _("Draw Chord 9"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 8));
+	draw_chord_actions[9] = ActionManager::register_radio_action (chord_actions, draw_chord_group, X_("draw-chord-9"), _("Draw Chord 10"), sigc::bind (sigc::mem_fun (*this, &EditingContext::draw_chord_chosen), 9));
 
 	ActionManager::set_sensitive (_midi_actions, false);
 }
@@ -915,6 +915,22 @@ EditingContext::grid_type_chosen (GridType gt)
 void
 EditingContext::draw_chord_chosen (int num)
 {
+	EC_LOCAL_TEMPO_SCOPE;
+
+	/* this is driven by a toggle on a radio group, and so is invoked twice,
+	   once for the item that became inactive and once for the one that became
+	   active.
+	*/
+
+	RefPtr<RadioAction> ract;
+
+	ract = draw_chord_actions[std::max (std::min (num, 9), 0)];
+
+	if (!ract->get_active()) {
+		return;
+	}
+
+	instant_save ();
 }
 
 void
