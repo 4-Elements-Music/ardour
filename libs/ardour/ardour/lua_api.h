@@ -110,6 +110,17 @@ namespace ARDOUR { namespace LuaAPI {
 	/* As above but uses default time domain for the session/application */
 	std::shared_ptr<ARDOUR::Processor> new_plugin (ARDOUR::Session *s, const std::string& id, ARDOUR::PluginType type, const std::string& preset = "");
 
+	/** Import an audio or MIDI file into the session and create a Region from it.
+	 *
+	 * The returned Region is not yet added to any playlist. Use
+	 * `playlist:add_region()` to place it at a desired position.
+	 *
+	 * @param s Session handle
+	 * @param path Absolute path to the audio or MIDI file
+	 * @returns newly-created Region (may be nil on failure)
+	 */
+	std::shared_ptr<ARDOUR::Region> import_audio_file (ARDOUR::Session* s, const std::string& path);
+
 	/** set a plugin control-input parameter value
 	 *
 	 * @param proc Plugin-Processor

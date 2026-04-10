@@ -36,8 +36,11 @@
 #include "ardour/plugin_insert.h"
 #include "ardour/plugin_manager.h"
 #include "ardour/readable.h"
+#include "ardour/audioregion.h"
+#include "ardour/import_status.h"
 #include "ardour/region_factory.h"
 #include "ardour/simple_export.h"
+#include "ardour/smf_source.h"
 #include "ardour/source_factory.h"
 #include "ardour/uri_map.h"
 
@@ -248,6 +251,76 @@ ARDOUR::LuaAPI::new_plugin_with_time_domain (Session *s, const string& name, ARD
 
 	/* Lua processor takes time domain from session */
 	return std::shared_ptr<Processor> (new PluginInsert (*s, *s, p));
+}
+
+std::shared_ptr<Region>
+ARDOUR::LuaAPI::import_audio_file (Session* s, const std::string& path)
+{
+	if (!s) {
+		return std::shared_ptr<Region> ();
+	}
+
+	const DataType source_type = SMFSource::safe_midi_file_extension (path) ? DataType::MIDI : DataType::AUDIO;
+
+	try {
+		ImportStatus status;
+		status.total = 1;
+		status.quality = SrcBest;
+		status.freeze = false;
+		status.paths.push_back (path);
+		status.replace_existing_source = false;
+		status.split_midi_channels = false;
+		status.import_markers = false;
+		status.midi_track_name_source = SMFFileAndTrackName;
+
+		s->import_files (status);
+
+		if (status.cancel || status.sources.empty ()) {
+			error << string_compose (_("LuaAPI::import_audio_file: could not import \"%1\""), path) << endmsg;
+			return std::shared_ptr<Region> ();
+		}
+
+		SourceList src_list;
+		for (auto& src : status.sources) {
+			src_list.push_back (src);
+		}
+
+		std::string region_name = region_name_from_path (path, false, false);
+		while (RegionFactory::region_by_name (region_name)) {
+			region_name = bump_name_once (region_name, '.');
+		}
+
+		PropertyList plist;
+		plist.add (Properties::start, timecnt_t (src_list[0]->type() == DataType::AUDIO ? Temporal::AudioTime : Temporal::BeatTime));
+		plist.add (Properties::length, src_list[0]->length ());
+		plist.add (Properties::name, region_name);
+		plist.add (Properties::layer, 0);
+		plist.add (Properties::whole_file, true);
+		plist.add (Properties::external, true);
+		plist.add (Properties::opaque, true);
+
+		std::shared_ptr<Region> r = RegionFactory::create (src_list, plist);
+
+		if (std::dynamic_pointer_cast<AudioRegion>(r)) {
+			std::dynamic_pointer_cast<AudioRegion>(r)->special_set_position (src_list[0]->natural_position ());
+		}
+
+		/* Create a non-whole-file region usable for placing in a playlist */
+		PropertyList plist2;
+		plist2.add (Properties::start, 0);
+		plist2.add (Properties::length, src_list.front()->length ());
+		plist2.add (Properties::name, PBD::basename_nosuffix (path));
+		plist2.add (Properties::layer, 0);
+		plist2.add (Properties::whole_file, false);
+		plist2.add (Properties::external, true);
+		plist2.add (Properties::opaque, true);
+
+		return RegionFactory::create (r, plist2);
+
+	} catch (...) {
+		error << string_compose (_("LuaAPI::import_audio_file: exception while importing \"%1\""), path) << endmsg;
+		return std::shared_ptr<Region> ();
+	}
 }
 
 bool
