@@ -50,8 +50,14 @@ A single JSON object describes the entire mix job.
 {
   "session": {
     "sample_rate": 48000,
-    "tempo": 120.0,
-    "time_signature": [4, 4],
+    "tempo": [
+      {"bar": 1, "bpm": 120.0},
+      {"bar": 17, "bpm": 140.0, "ramp": true}
+    ],
+    "time_signature": [
+      {"bar": 1, "numerator": 4, "denominator": 4},
+      {"bar": 9, "numerator": 6, "denominator": 8}
+    ],
     "duration_bars": 32
   },
   "tracks": [
@@ -106,6 +112,24 @@ A single JSON object describes the entire mix job.
       "plugins": [],
       "gain_db": -6.0,
       "pan": 0.5
+    },
+    {
+      "name": "Strings",
+      "type": "midi",
+      "regions": [
+        {
+          "file": "/library/midi/strings-arrangement.mid",
+          "position_bar": 1
+        }
+      ],
+      "instrument": {
+        "uri": "urn:ardour:a-fluidsynth",
+        "files": ["/library/soundfonts/orchestral-strings.sf2"],
+        "preset": null,
+        "params": {}
+      },
+      "gain_db": -8.0,
+      "pan": 0.5
     }
   ],
   "buses": [
@@ -141,8 +165,8 @@ A single JSON object describes the entire mix job.
 ### Field Reference
 
 **session**: Global session parameters.
-- `tempo`: BPM (float). Tempo changes not yet supported; single tempo per job.
-- `time_signature`: [numerator, denominator].
+- `tempo`: Array of tempo points. Each has `bar` (1-indexed bar number), `bpm` (float), and optional `ramp` (boolean — if true, tempo ramps smoothly from previous tempo to this one; if false or omitted, tempo changes instantly). At minimum one entry at bar 1 is required.
+- `time_signature`: Array of time signature changes. Each has `bar` (1-indexed), `numerator`, `denominator`. At minimum one entry at bar 1 is required.
 - `duration_bars`: How many bars to render.
 - `sample_rate`: Session sample rate in Hz.
 
@@ -162,6 +186,10 @@ A single JSON object describes the entire mix job.
   - `preset`: Plugin preset name to load (optional).
   - `params`: Map of parameter index (string) to value (float).
 - `instrument`: For MIDI tracks, the virtual instrument plugin.
+  - `uri`: LV2 plugin URI for the instrument.
+  - `files`: Array of file paths to load into the instrument (SF2 soundfonts, SFZ patches, WAV sample sets, etc.). These are set via the instrument's file-loading property (e.g., FluidSynth's soundfont path, or a sampler's sample directory).
+  - `preset`: Instrument preset name to load after files (optional).
+  - `params`: Parameter overrides (same format as plugins).
 - `sends[]`: Aux sends to buses.
   - `bus`: Name of the target bus (must match a bus in `buses[]`).
   - `gain_db`: Send level.
@@ -251,7 +279,8 @@ The JSON-to-Lua translator is a straightforward template engine. Each section of
 
 | Job Spec | Lua API |
 |----------|---------|
-| `session.tempo` | `Temporal.TempoMap.write_copy()` / `tm:set_tempo()` |
+| `session.tempo[]` | `Temporal.TempoMap.write_copy()` / `tm:set_tempo()` at each bar position. Supports ramped tempos via `Temporal.Tempo(bpm_start, bpm_end, note_type)`. |
+| `session.time_signature[]` | `tm:set_meter(Temporal.Meter(num, denom), position)` at each bar position. |
 | `tracks[].type == "audio"` | `Session:new_audio_track()` |
 | `tracks[].type == "midi"` | `Session:new_midi_track()` |
 | `tracks[].regions[].file` | `ARDOUR.LuaAPI.import_audio_file()` |
@@ -262,6 +291,7 @@ The JSON-to-Lua translator is a straightforward template engine. Each section of
 | `tracks[].pan` | `route:pan_azimuth_control():set_value()` |
 | `tracks[].sends[]` | `Session:add_internal_sends()` / `route:send_level_controllable()` |
 | `buses[]` | `Session:new_audio_route()` |
+| `tracks[].instrument.files` | `ARDOUR.LuaAPI.set_plugin_insert_property()` to set file path properties (e.g., FluidSynth soundfont URI) |
 | `master.plugins[]` | Same plugin API on `Session:master_out()` |
 | Export | Needs resolution (CLI tool or fixed SimpleExport) |
 
