@@ -313,4 +313,28 @@ describe('generateLuaScript', () => {
     const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
     assert.ok(lua.includes('MidiPitchBenderAutomation'));
   });
+
+  it('emits stem exports when stems is true', () => {
+    const spec = minimalSpec();
+    spec.output.stems = true;
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('solo_control'));
+    assert.ok(lua.includes('run_export'));
+    const exportCount = (lua.match(/run_export/g) || []).length;
+    assert.ok(exportCount >= 2, `Expected >= 2 exports, got ${exportCount}`);
+  });
+
+  it('emits stem exports only for stem_groups when specified', () => {
+    const spec = minimalSpec();
+    spec.tracks = [
+      { name: 'Kick', type: 'audio', regions: [{ file: 'stems/kick.wav', position_bar: 1 }] },
+      { name: 'Bass', type: 'audio', regions: [{ file: 'stems/bass.wav', position_bar: 1 }] },
+    ];
+    spec.output.stems = true;
+    spec.output.stem_groups = ['Kick'];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('Kick'));
+    const exportCount = (lua.match(/run_export/g) || []).length;
+    assert.ok(exportCount >= 2);
+  });
 });

@@ -224,6 +224,42 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('');
   }
 
+  // ── 7b. Stem export ──
+  if (spec.output.stems) {
+    const stemTracks = spec.output.stem_groups && spec.output.stem_groups.length > 0
+      ? spec.output.stem_groups
+      : spec.tracks.map(t => t.name);
+
+    lines.push('-- Stem exports');
+    for (const trackName of stemTracks) {
+      lines.push('do');
+      lines.push(`  local stem_route = Session:route_by_name(${luaString(trackName)})`);
+      lines.push('  if stem_route and not stem_route:isnil() then');
+      lines.push('    stem_route:solo_control():set_value(1, PBD.GroupControlDisposition.NoGroup)');
+      for (const fmt of formats) {
+        const bitDepth = fmt.bit_depth || 24;
+        const fmtSampleRate = fmt.sample_rate || sampleRate;
+        lines.push('    do');
+        lines.push('      local se = Session:simple_export()');
+        lines.push(`      se:set_name(${luaString('stem_' + trackName)})`);
+        lines.push(`      se:set_folder(${luaString(exportDir)})`);
+        lines.push(`      se:set_range(${exportRangeStart}, ${exportRangeEnd})`);
+        if (bitDepth === 16 && fmtSampleRate === 44100) {
+          lines.push('      se:set_preset("df340c53-88b5-4342-a1c8-58e0704872ea")');
+        } else {
+          lines.push('      se:set_preset("75969a1c-3133-4694-864b-a1fa50e43348")');
+        }
+        lines.push('      se:check_outputs()');
+        lines.push('      se:run_export()');
+        lines.push('    end');
+      }
+      lines.push('    stem_route:solo_control():set_value(0, PBD.GroupControlDisposition.NoGroup)');
+      lines.push('  end');
+      lines.push('end');
+    }
+    lines.push('');
+  }
+
   // ── 8. Close session ──
   lines.push('close_session()');
 
