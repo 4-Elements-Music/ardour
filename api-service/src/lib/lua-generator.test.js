@@ -264,6 +264,19 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('automation_control'));
   });
 
+  it('routes sidechain source track to plugin sidechain input', () => {
+    const spec = minimalSpec();
+    spec.tracks = [
+      { name: 'Kick', type: 'audio', regions: [{ file: 'stems/kick.wav', position_bar: 1 }] },
+      { name: 'Bass', type: 'audio', regions: [{ file: 'stems/bass.wav', position_bar: 1 }],
+        plugins: [{ uri: 'urn:ardour:a-comp', sidechain_source: 'Kick' }] },
+    ];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('add_sidechain'));
+    assert.ok(lua.includes('sidechain_input'));
+    assert.ok(lua.includes('Kick'));
+  });
+
   it('emits mute automation', () => {
     const spec = minimalSpec();
     spec.tracks[0].automation = [{

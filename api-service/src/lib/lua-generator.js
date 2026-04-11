@@ -396,7 +396,17 @@ function emitPlugins(lines, routeVar, plugins) {
     }
 
     if (plugin.sidechain_source) {
-      lines.push(`    ${routeVar}:add_sidechain(${plugVar})`);
+      lines.push(`    local pi = ${plugVar}:to_insert()`);
+      lines.push('    if pi and not pi:isnil() then');
+      lines.push('      pi:add_sidechain()');
+      lines.push(`      local src = Session:route_by_name(${luaString(plugin.sidechain_source)})`);
+      lines.push('      if src and not src:isnil() then');
+      lines.push('        local sc_in = pi:sidechain_input()');
+      lines.push('        if sc_in and not sc_in:isnil() then');
+      lines.push('          sc_in:connect(src:output():audio(0):name(), sc_in:audio(0):name(), nil)');
+      lines.push('        end');
+      lines.push('      end');
+      lines.push('    end');
     }
 
     lines.push('  end');
