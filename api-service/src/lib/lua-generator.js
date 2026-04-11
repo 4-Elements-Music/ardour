@@ -260,6 +260,30 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('');
   }
 
+  // ── 7c. Analysis (analyze_only mode) ──
+  if (spec.analyze_only) {
+    lines.push('-- Analysis output');
+    for (const track of spec.tracks) {
+      lines.push(`do local r = Session:route_by_name(${luaString(track.name)})`);
+      lines.push('if r and not r:isnil() then');
+      lines.push('  local pk = r:peak_meter()');
+      lines.push('  if pk and not pk:isnil() then');
+      lines.push(`    local peak_db = pk:meter_level(0, ARDOUR.MeterType.MeterPeak)`);
+      lines.push(`    print("ANALYSIS_JSON:" .. string.format('{"track":"${track.name.replace(/'/g, "\\'")}","peak_db":%.1f}', peak_db))`);
+      lines.push('  end');
+      lines.push('end end');
+    }
+    lines.push('do local m = Session:master_out()');
+    lines.push('if m and not m:isnil() then');
+    lines.push('  local pk = m:peak_meter()');
+    lines.push('  if pk and not pk:isnil() then');
+    lines.push('    local peak_db = pk:meter_level(0, ARDOUR.MeterType.MeterPeak)');
+    lines.push('    print(\'ANALYSIS_JSON:{"track":"__master__","peak_db":\' .. string.format("%.1f", peak_db) .. \'}\')');
+    lines.push('  end');
+    lines.push('end end');
+    lines.push('');
+  }
+
   // ── 8. Close session ──
   lines.push('close_session()');
 

@@ -7,6 +7,7 @@ import { generateLuaScript } from '../lib/lua-generator.js';
 import { executeJob, cleanupJob } from '../lib/executor.js';
 import { validateJobSpec } from '../lib/validator.js';
 import { JobQueue } from '../lib/job-queue.js';
+import { parseAnalysisOutput } from '../lib/analyzer.js';
 
 const queue = new JobQueue();
 
@@ -17,13 +18,14 @@ queue.onJobReady = async (jobId) => {
   try {
     const luaScript = generateLuaScript(job.spec, join(config.jobsDir, jobId), config.libraryBaseDir);
     const result = await executeJob(jobId, luaScript, console);
+    const analysis = job.spec.analyze_only ? parseAnalysisOutput(result.stdout) : null;
     const outputs = result.outputs.map(o => ({
       format: o.filename.split('.').pop(),
       filename: o.filename,
       url: `/v1/jobs/${jobId}/output/${o.filename}`,
       size: o.size,
     }));
-    queue.markComplete(jobId, outputs, null);
+    queue.markComplete(jobId, outputs, analysis);
   } catch (err) {
     console.error(`Job ${jobId} failed:`, err.message);
     queue.markFailed(jobId, err.message);
@@ -57,6 +59,7 @@ export async function jobRoutes(app) {
 
     const response = { job_id: job.id, status: job.status, progress: job.progress };
     if (job.status === 'complete') response.outputs = job.outputs;
+    if (job.status === 'complete' && job.analysis) response.analysis = job.analysis;
     if (job.status === 'failed') response.error = job.error;
     return response;
   });

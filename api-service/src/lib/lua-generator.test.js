@@ -349,4 +349,12 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('set_processor_param'));
     assert.ok(lua.includes('48'));
   });
+
+  it('emits analysis output for analyze_only mode', () => {
+    const spec = minimalSpec();
+    spec.analyze_only = true;
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('ANALYSIS_JSON'));
+    assert.ok(lua.includes('peak_meter'));
+  });
 });
