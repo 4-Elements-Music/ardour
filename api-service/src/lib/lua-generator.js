@@ -301,6 +301,41 @@ function emitRegion(lines, trackVar, track, region, spec, libraryBaseDir) {
 
     lines.push('    model:apply_diff_command_as_commit(Session, cmd)');
 
+    // MIDI CC automation
+    if (region.cc && region.cc.length > 0) {
+      const byController = new Map();
+      for (const cc of region.cc) {
+        if (!byController.has(cc.controller)) byController.set(cc.controller, []);
+        byController.get(cc.controller).push(cc);
+      }
+      for (const [controller, events] of byController) {
+        lines.push(`    do local param = Evoral.Parameter(ARDOUR.AutomationType.MidiCCAutomation, 0, ${controller})`);
+        lines.push(`    local ac = ${trackVar}:automation_control(param, true)`);
+        lines.push('    if ac and not ac:isnil() then');
+        lines.push('      local al = ac:alist()');
+        for (const cc of events) {
+          const beatTicks = cc.time_beat * 1920;
+          lines.push(`      al:add(Temporal.timepos_t.from_ticks(${pos} + ${beatTicks}), ${cc.value / 127.0}, false, true)`);
+        }
+        lines.push('      ac:set_automation_state(ARDOUR.AutoState.Play)');
+        lines.push('    end end');
+      }
+    }
+
+    // MIDI pitch bend automation
+    if (region.pitch_bend && region.pitch_bend.length > 0) {
+      lines.push(`    do local param = Evoral.Parameter(ARDOUR.AutomationType.MidiPitchBenderAutomation, 0, 0)`);
+      lines.push(`    local ac = ${trackVar}:automation_control(param, true)`);
+      lines.push('    if ac and not ac:isnil() then');
+      lines.push('      local al = ac:alist()');
+      for (const pb of region.pitch_bend) {
+        const beatTicks = pb.time_beat * 1920;
+        lines.push(`      al:add(Temporal.timepos_t.from_ticks(${pos} + ${beatTicks}), ${pb.value / 16383.0}, false, true)`);
+      }
+      lines.push('      ac:set_automation_state(ARDOUR.AutoState.Play)');
+      lines.push('    end end');
+    }
+
     // Loop copies for MIDI
     const loopCount = region.loop_count || 1;
     if (loopCount > 1) {

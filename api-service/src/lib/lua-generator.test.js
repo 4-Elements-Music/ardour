@@ -231,4 +231,35 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('Intro'));
     assert.ok(lua.includes('Chorus'));
   });
+
+  it('emits MIDI CC events', () => {
+    const spec = minimalSpec();
+    spec.tracks = [{
+      name: 'Synth', type: 'midi',
+      instrument: { uri: 'urn:ardour:a-fluidsynth' },
+      regions: [{
+        notes: [{ pitch: 60, velocity: 100, start_beat: 0, duration_beats: 1 }],
+        cc: [{ controller: 1, time_beat: 0, value: 64 }, { controller: 1, time_beat: 2, value: 127 }],
+        position_bar: 1, length_bars: 4,
+      }],
+    }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('MidiCCAutomation'));
+    assert.ok(lua.includes('automation_control'));
+  });
+
+  it('emits MIDI pitch bend events', () => {
+    const spec = minimalSpec();
+    spec.tracks = [{
+      name: 'Synth', type: 'midi',
+      instrument: { uri: 'urn:ardour:a-fluidsynth' },
+      regions: [{
+        notes: [{ pitch: 60, velocity: 100, start_beat: 0, duration_beats: 1 }],
+        pitch_bend: [{ time_beat: 0, value: 8192 }, { time_beat: 2, value: 16383 }],
+        position_bar: 1, length_bars: 4,
+      }],
+    }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('MidiPitchBenderAutomation'));
+  });
 });
