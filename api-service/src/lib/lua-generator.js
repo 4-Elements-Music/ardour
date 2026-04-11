@@ -111,6 +111,28 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('');
   }
 
+  // ── 5b. VCAs ──
+  if (spec.vcas) {
+    for (const vca of spec.vcas) {
+      lines.push(`-- VCA: ${vca.name}`);
+      lines.push(`Session:vca_manager():create_vca(1, ${luaString(vca.name)})`);
+      lines.push('do');
+      lines.push(`  local vca = Session:vca_manager():vca_by_name(${luaString(vca.name)})`);
+      lines.push('  if vca and not vca:isnil() then');
+      for (const controlName of vca.controls) {
+        lines.push(`    do local r = Session:route_by_name(${luaString(controlName)})`);
+        lines.push('    if r and not r:isnil() then r:to_slavable():assign(vca) end end');
+      }
+      if (vca.gain_db !== undefined) {
+        const coeff = Math.pow(10, vca.gain_db / 20);
+        lines.push(`    vca:gain_control():set_value(${coeff}, PBD.GroupControlDisposition.NoGroup)`);
+      }
+      lines.push('  end');
+      lines.push('end');
+      lines.push('');
+    }
+  }
+
   // ── 6. Session range ──
   const totalTicks = durationToTicks(spec.session.duration_bars, spec.session.time_signature);
   lines.push(`Session:maybe_update_session_range(Temporal.timepos_t(0), Temporal.timepos_t.from_ticks(${totalTicks}))`);

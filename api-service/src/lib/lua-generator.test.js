@@ -183,4 +183,14 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('send_level_controllable'));
     assert.ok(lua.includes('FX Reverb'));
   });
+
+  it('emits VCA creation and track assignment', () => {
+    const spec = minimalSpec();
+    spec.vcas = [{ name: 'All Music', controls: ['Test'], gain_db: -3 }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('vca_manager'));
+    assert.ok(lua.includes('create_vca'));
+    assert.ok(lua.includes('to_slavable'));
+    assert.ok(lua.includes('assign'));
+  });
 });
