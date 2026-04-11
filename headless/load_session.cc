@@ -38,6 +38,9 @@
 #include "ardour/revision.h"
 #include "ardour/session.h"
 
+#include "pbd/event_loop.h"
+#include "ardour/control_protocol_manager.h"
+#include "ardour/session_event.h"
 #include "control_protocol/control_protocol.h"
 
 #include "misc.h"
@@ -46,17 +49,42 @@ using namespace std;
 using namespace ARDOUR;
 using namespace PBD;
 
-static const char* localedir = LOCALEDIR;
+class MyEventLoop : public sigc::trackable, public PBD::EventLoop
+{
+public:
+	MyEventLoop (std::string const& name)
+		: EventLoop (name)
+	{
+		run_loop_thread = g_thread_self ();
+	}
+
+	bool call_slot (PBD::EventLoop::InvalidationRecord* ir, const std::function<void ()>& f)
+	{
+		f ();
+		return true;
+	}
+
+	void run () {}
+
+	PBD::RWLock& slot_invalidation_rwlock ()
+	{
+		return request_buffer_map_lock;
+	}
+
+private:
+	GThread*     run_loop_thread;
+	PBD::RWLock  request_buffer_map_lock;
+};
+
+static MyEventLoop* event_loop = 0;
+static const char*  localedir  = LOCALEDIR;
 
 static string             backend_client_name;
 static CrossThreadChannel xthread (true);
 static TestReceiver       test_receiver;
 
-#if ! (defined(__APPLE__) || defined(PLATFORM_WINDOWS))
-static string backend_name = "JACK/Pipewire";
-#else
-static string backend_name = "JACK";
-#endif
+static string backend_name = "None (Dummy)";
+static int    mcp_http_port = 0;
 
 /** @param dir Session directory.
  *  @param state Session state file, without .ardour suffix.
@@ -71,10 +99,16 @@ load_session (string dir, string state)
 	test_receiver.listen_to (fatal);
 
 	AudioEngine* engine = AudioEngine::create ();
+	cerr << "hardour: setting backend to '" << backend_name << "'" << endl;
 
 	if (!engine->set_backend (backend_name, backend_client_name, "")) {
 		std::cerr << "Cannot set Audio/MIDI engine backend\n";
 		exit (EXIT_FAILURE);
+	}
+
+	if (backend_name == "None (Dummy)") {
+		engine->set_sample_rate (48000);
+		engine->set_buffer_size (1024);
 	}
 
 	if (engine->start () != 0) {
@@ -82,8 +116,11 @@ load_session (string dir, string state)
 		exit (EXIT_FAILURE);
 	}
 
+	cerr << "hardour: engine started, loading session..." << endl;
 	Session* session = new Session (*engine, dir, state);
+	cerr << "hardour: session loaded, setting engine session..." << endl;
 	engine->set_session (session);
+	cerr << "hardour: session ready" << endl;
 	return session;
 }
 
@@ -154,7 +191,7 @@ print_help ()
 int
 main (int argc, char* argv[])
 {
-	const char* optstring = "vhBdD:c:OU:P";
+	const char* optstring = "vhBdD:c:OU:Pb:m:";
 
 	/* clang-format off */
 	const struct option longopts[] = {
@@ -166,6 +203,8 @@ main (int argc, char* argv[])
 		{ "name",                required_argument, 0, 'c' },
 		{ "no-hw-optimizations", no_argument,       0, 'O' },
 		{ "no-connect-ports",    no_argument,       0, 'P' },
+		{ "backend",             required_argument, 0, 'b' },
+		{ "mcp-http-port",       required_argument, 0, 'm' },
 		{ 0, 0, 0, 0 }
 	};
 	/* clang-format on */
@@ -216,6 +255,14 @@ main (int argc, char* argv[])
 				ARDOUR::Port::set_connecting_blocked (true);
 				break;
 
+			case 'b':
+				backend_name = optarg;
+				break;
+
+			case 'm':
+				mcp_http_port = atoi (optarg);
+				break;
+
 			default:
 				print_help ();
 				exit (EXIT_FAILURE);
@@ -227,11 +274,19 @@ main (int argc, char* argv[])
 		exit (EXIT_FAILURE);
 	}
 
+	cerr << "hardour: starting with backend=" << backend_name << " mcp-http-port=" << mcp_http_port << endl;
+
 	if (!ARDOUR::init (try_hw_optimization, localedir)) {
 		cerr << "Ardour failed to initialize\n"
 		     << endl;
 		exit (EXIT_FAILURE);
 	}
+
+	/* Set up event loop (required by control surfaces like MCP HTTP) */
+	event_loop = new MyEventLoop ("hardour");
+	PBD::EventLoop::set_event_loop_for_thread (event_loop);
+
+	cerr << "hardour: loading session from " << argv[optind] << " / " << argv[optind + 1] << endl;
 
 	Session* s = 0;
 
@@ -270,7 +325,28 @@ main (int argc, char* argv[])
 	signal (SIGTERM, wearedone);
 #endif
 
-	s->request_roll ();
+	/* Activate MCP HTTP surface if port was specified */
+	if (mcp_http_port > 0) {
+		ARDOUR::ControlProtocolInfo* cpi = 0;
+		for (auto const& p : ARDOUR::ControlProtocolManager::instance().control_protocol_infos ()) {
+			if (p->name == "MCP HTTP Server (Experimental)") {
+				cpi = p;
+				break;
+			}
+		}
+		if (cpi) {
+			XMLNode* state_node = new XMLNode ("Protocol");
+			state_node->set_property ("port", mcp_http_port);
+			cpi->state = state_node;
+			if (ARDOUR::ControlProtocolManager::instance().activate (*cpi)) {
+				cerr << "Failed to activate MCP HTTP surface on port " << mcp_http_port << endl;
+			} else {
+				cerr << "MCP HTTP listening on port " << mcp_http_port << endl;
+			}
+		} else {
+			cerr << "MCP HTTP surface not found -- is it built?" << endl;
+		}
+	}
 
 	char msg;
 	do {
@@ -281,5 +357,6 @@ main (int argc, char* argv[])
 	AudioEngine::instance ()->stop ();
 
 	ARDOUR::cleanup ();
+	delete event_loop;
 	return 0;
 }
