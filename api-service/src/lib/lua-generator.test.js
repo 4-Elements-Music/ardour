@@ -337,4 +337,16 @@ describe('generateLuaScript', () => {
     const exportCount = (lua.match(/run_export/g) || []).length;
     assert.ok(exportCount >= 2);
   });
+
+  it('emits bank and program selection for instruments', () => {
+    const spec = minimalSpec();
+    spec.tracks = [{
+      name: 'Strings', type: 'midi',
+      instrument: { uri: 'urn:ardour:a-fluidsynth', files: ['sf2/strings.sf2'], bank: 0, program: 48 },
+      regions: [{ notes: [{ pitch: 60, velocity: 100, start_beat: 0, duration_beats: 1 }], position_bar: 1, length_bars: 4 }],
+    }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('set_processor_param'));
+    assert.ok(lua.includes('48'));
+  });
 });

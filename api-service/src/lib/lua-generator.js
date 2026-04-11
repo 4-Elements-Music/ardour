@@ -468,6 +468,16 @@ function emitInstrument(lines, trackVar, instrument, libraryBaseDir) {
     }
   }
 
+  if (instrument.bank !== undefined || instrument.program !== undefined) {
+    lines.push('    local pi2 = inst:to_insert()');
+    if (instrument.bank !== undefined) {
+      lines.push(`    ARDOUR.LuaAPI.set_processor_param(pi2, 2, ${instrument.bank})`);
+    }
+    if (instrument.program !== undefined) {
+      lines.push(`    ARDOUR.LuaAPI.set_processor_param(pi2, 3, ${instrument.program})`);
+    }
+  }
+
   lines.push('  end');
   lines.push('end');
 }
