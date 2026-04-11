@@ -147,6 +147,25 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('');
   }
 
+  // ── 5d. Track groups ──
+  const groupNames = new Set();
+  for (const track of spec.tracks) {
+    if (track.group) groupNames.add(track.group);
+  }
+  if (groupNames.size > 0) {
+    lines.push('-- Track groups');
+    for (const groupName of groupNames) {
+      const groupVar = `grp_${safeName(groupName)}`;
+      lines.push(`local ${groupVar} = Session:new_route_group(${luaString(groupName)})`);
+      for (const track of spec.tracks) {
+        if (track.group === groupName) {
+          lines.push(`do local r = Session:route_by_name(${luaString(track.name)}); if r and not r:isnil() then ${groupVar}:add(r) end end`);
+        }
+      }
+      lines.push('');
+    }
+  }
+
   // ── 6. Session range ──
   const totalTicks = durationToTicks(spec.session.duration_bars, spec.session.time_signature);
   lines.push(`Session:maybe_update_session_range(Temporal.timepos_t(0), Temporal.timepos_t.from_ticks(${totalTicks}))`);

@@ -194,6 +194,17 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('assign'));
   });
 
+  it('emits track groups for tracks sharing a group name', () => {
+    const spec = minimalSpec();
+    spec.tracks = [
+      { name: 'Kick', type: 'audio', regions: [{ file: 'stems/kick.wav', position_bar: 1 }], group: 'Drums' },
+      { name: 'Snare', type: 'audio', regions: [{ file: 'stems/snare.wav', position_bar: 1 }], group: 'Drums' },
+    ];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('new_route_group'));
+    assert.ok(lua.includes('Drums'));
+  });
+
   it('emits markers at bar positions', () => {
     const spec = minimalSpec();
     spec.markers = [{ name: 'Intro', bar: 1 }, { name: 'Chorus', bar: 9 }];
