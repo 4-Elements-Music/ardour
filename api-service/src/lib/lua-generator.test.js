@@ -264,6 +264,18 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('automation_control'));
   });
 
+  it('emits mute automation', () => {
+    const spec = minimalSpec();
+    spec.tracks[0].automation = [{
+      target: 'mute',
+      points: [{ bar: 1, value: 0 }, { bar: 4, value: 1 }],
+    }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('mute_control'));
+    assert.ok(lua.includes('alist'));
+    assert.ok(lua.includes('set_automation_state'));
+  });
+
   it('uses render_range for export when specified', () => {
     const spec = minimalSpec();
     spec.session.duration_bars = 16;

@@ -482,6 +482,19 @@ function emitAutomation(lines, routeVar, automations) {
       lines.push('  end');
       lines.push('end');
 
+    } else if (auto.target === 'mute') {
+      lines.push('do');
+      lines.push(`  local ac = ${routeVar}:mute_control()`);
+      lines.push('  local al = ac:alist()');
+      lines.push('  al:clear_list()');
+      for (const pt of auto.points) {
+        const ticks = barBeatToTicks(pt.bar || 1, pt.beat || 1, [{ bar: 1, numerator: 4, denominator: 4 }]);
+        const val = pt.value !== undefined ? pt.value : 0;
+        lines.push(`  al:add(Temporal.timepos_t.from_ticks(${ticks}), ${val}, false, true)`);
+      }
+      lines.push('  ac:set_automation_state(ARDOUR.AutoState.Play)');
+      lines.push('end');
+
     } else if (auto.target === 'plugin') {
       lines.push('do');
       lines.push(`  local proc = ${routeVar}:nth_plugin(${auto.plugin_index || 0})`);
