@@ -94,6 +94,11 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
       emitAutomation(lines, varName, track.automation);
     }
 
+    // Sends
+    if (track.sends) {
+      emitSends(lines, varName, track.sends);
+    }
+
     lines.push('');
   }
 
@@ -363,6 +368,27 @@ function emitAutomation(lines, routeVar, automations) {
       lines.push('  end');
       lines.push('end');
     }
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// Sends emission
+// ────────────────────────────────────────────────────────
+
+function emitSends(lines, trackVar, sends) {
+  for (let i = 0; i < sends.length; i++) {
+    const send = sends[i];
+    lines.push('do');
+    lines.push(`  local dest = Session:route_by_name(${luaString(send.bus)})`);
+    lines.push('  if dest and not dest:isnil() then');
+    lines.push(`    Session:add_internal_send(${trackVar}, nil, dest)`);
+    if (send.gain_db !== undefined) {
+      const coeff = Math.pow(10, send.gain_db / 20);
+      lines.push(`    local sc = ${trackVar}:send_level_controllable(${i})`);
+      lines.push(`    if sc and not sc:isnil() then sc:set_value(${coeff}, PBD.GroupControlDisposition.NoGroup) end`);
+    }
+    lines.push('  end');
+    lines.push('end');
   }
 }
 

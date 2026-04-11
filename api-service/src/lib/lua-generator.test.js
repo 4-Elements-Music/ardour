@@ -173,4 +173,14 @@ describe('generateLuaScript', () => {
       /Path traversal/
     );
   });
+
+  it('emits sends to buses', () => {
+    const spec = minimalSpec();
+    spec.buses = [{ name: 'FX Reverb', type: 'aux', plugins: [{ uri: 'urn:ardour:a-reverb' }] }];
+    spec.tracks[0].sends = [{ bus: 'FX Reverb', gain_db: -12 }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('add_internal_send'));
+    assert.ok(lua.includes('send_level_controllable'));
+    assert.ok(lua.includes('FX Reverb'));
+  });
 });
