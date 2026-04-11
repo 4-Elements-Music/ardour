@@ -191,6 +191,18 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
   lines.push('');
   lines.push(`os.execute("mkdir -p " .. ${luaString(exportDir)})`);
 
+  // Calculate export range
+  let exportRangeStart, exportRangeEnd;
+  if (spec.session.render_range) {
+    const startTicks = barToTicks(spec.session.render_range.start_bar, spec.session.time_signature);
+    const endTicks = barToTicks(spec.session.render_range.end_bar, spec.session.time_signature);
+    exportRangeStart = `Temporal.timepos_t.from_ticks(${startTicks}):samples()`;
+    exportRangeEnd = `Temporal.timepos_t.from_ticks(${endTicks}):samples()`;
+  } else {
+    exportRangeStart = 'Session:current_start_sample()';
+    exportRangeEnd = 'Session:current_end_sample()';
+  }
+
   const formats = spec.output.formats || [{ format: 'wav', bit_depth: 24, sample_rate: sampleRate }];
   for (const fmt of formats) {
     const bitDepth = fmt.bit_depth || 24;
@@ -199,7 +211,7 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('  local se = Session:simple_export()');
     lines.push('  se:set_name("output")');
     lines.push(`  se:set_folder(${luaString(exportDir)})`);
-    lines.push('  se:set_range(Session:current_start_sample(), Session:current_end_sample())');
+    lines.push(`  se:set_range(${exportRangeStart}, ${exportRangeEnd})`);
     // CD preset for 16-bit 44100, WAV@session for everything else
     if (bitDepth === 16 && fmtSampleRate === 44100) {
       lines.push('  se:set_preset("df340c53-88b5-4342-a1c8-58e0704872ea")');

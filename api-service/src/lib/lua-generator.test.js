@@ -264,6 +264,16 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('automation_control'));
   });
 
+  it('uses render_range for export when specified', () => {
+    const spec = minimalSpec();
+    spec.session.duration_bars = 16;
+    spec.session.render_range = { start_bar: 5, end_bar: 12 };
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('set_range'));
+    // When render_range is set, should NOT use current_start_sample
+    assert.ok(!lua.includes('current_start_sample'));
+  });
+
   it('emits MIDI pitch bend events', () => {
     const spec = minimalSpec();
     spec.tracks = [{
