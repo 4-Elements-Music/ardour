@@ -26,7 +26,6 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
   lines.push('AudioEngine:set_buffer_size(1024)');
   lines.push('AudioEngine:start()');
   lines.push('');
-  lines.push(`os.execute("mkdir -p " .. ${luaString(sessionDir)})`);
   lines.push(`create_session(${luaString(sessionDir)}, ${luaString(sessionName)}, ${sampleRate})`);
   lines.push('');
 

@@ -2,6 +2,8 @@ import Fastify from 'fastify';
 import { randomUUID } from 'crypto';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
+import { jobRoutes } from './routes/jobs.js';
+import { pluginRoutes } from './routes/plugins.js';
 
 const app = Fastify({
   logger: {
@@ -12,6 +14,8 @@ const app = Fastify({
 });
 
 app.register(healthRoutes, { prefix: '/v1' });
+app.register(jobRoutes, { prefix: '/v1' });
+app.register(pluginRoutes, { prefix: '/v1' });
 
 try {
   await app.listen({ port: config.port, host: config.host });
