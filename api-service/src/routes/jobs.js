@@ -5,6 +5,7 @@ import { join } from 'path';
 import { config } from '../config.js';
 import { generateLuaScript } from '../lib/lua-generator.js';
 import { executeJob, cleanupJob } from '../lib/executor.js';
+import { validateJobSpec } from '../lib/validator.js';
 import { JobQueue } from '../lib/job-queue.js';
 
 const queue = new JobQueue();
@@ -32,11 +33,13 @@ queue.onJobReady = async (jobId) => {
 export async function jobRoutes(app) {
   app.post('/jobs', async (req, reply) => {
     const spec = req.body;
-    if (!spec || !spec.session || !spec.tracks) {
-      return reply.code(400).send({ error: 'Invalid job spec: missing session or tracks' });
+    if (!spec || typeof spec !== 'object') {
+      return reply.code(400).send({ error: 'Request body must be a JSON object' });
     }
-    if ((spec.tracks || []).length > config.maxTracks) {
-      return reply.code(413).send({ error: `Too many tracks (max ${config.maxTracks})` });
+
+    const { valid, errors } = validateJobSpec(spec);
+    if (!valid) {
+      return reply.code(400).send({ error: 'Invalid job spec', details: errors });
     }
 
     const jobId = randomUUID();

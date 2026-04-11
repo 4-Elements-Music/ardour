@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test --test-force-exit src/**/*.test.js"
   },
   "dependencies": {
+    "ajv": "^8.18.0",
     "fastify": "^5.0.0",
     "uuid": "^10.0.0"
   }

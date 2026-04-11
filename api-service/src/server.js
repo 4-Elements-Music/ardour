@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { randomUUID } from 'crypto';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
-import { jobRoutes } from './routes/jobs.js';
+import { jobRoutes, queue } from './routes/jobs.js';
 import { pluginRoutes } from './routes/plugins.js';
 
 const app = Fastify({
@@ -13,6 +13,7 @@ const app = Fastify({
   genReqId: (req) => req.headers['x-request-id'] || randomUUID(),
 });
 
+app.decorate('jobQueue', queue);
 app.register(healthRoutes, { prefix: '/v1' });
 app.register(jobRoutes, { prefix: '/v1' });
 app.register(pluginRoutes, { prefix: '/v1' });

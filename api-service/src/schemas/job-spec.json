@@ -1,0 +1,342 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Headless DAW Job Spec",
+  "type": "object",
+  "required": ["session", "tracks", "output"],
+  "additionalProperties": false,
+  "properties": {
+    "session": {
+      "type": "object",
+      "required": ["sample_rate", "tempo", "time_signature", "duration_bars"],
+      "additionalProperties": false,
+      "properties": {
+        "sample_rate": { "type": "integer", "enum": [22050, 44100, 48000, 88200, 96000, 192000] },
+        "tempo": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["bar", "bpm"],
+            "additionalProperties": false,
+            "properties": {
+              "bar": { "type": "integer", "minimum": 1 },
+              "bpm": { "type": "number", "exclusiveMinimum": 0, "maximum": 999 },
+              "ramp": { "type": "boolean" }
+            }
+          }
+        },
+        "time_signature": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["bar", "numerator", "denominator"],
+            "additionalProperties": false,
+            "properties": {
+              "bar": { "type": "integer", "minimum": 1 },
+              "numerator": { "type": "integer", "minimum": 1, "maximum": 32 },
+              "denominator": { "type": "integer", "enum": [2, 4, 8, 16, 32] }
+            }
+          }
+        },
+        "duration_bars": { "type": "integer", "minimum": 1, "maximum": 9999 },
+        "render_range": {
+          "type": "object",
+          "required": ["start_bar", "end_bar"],
+          "additionalProperties": false,
+          "properties": {
+            "start_bar": { "type": "integer", "minimum": 1 },
+            "end_bar": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "type": { "type": "string", "enum": ["audio", "midi"] },
+          "channels": { "type": "integer", "minimum": 1, "maximum": 8, "default": 2 },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["pitch", "velocity", "start_beat", "duration_beats"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+                      "velocity": { "type": "integer", "minimum": 1, "maximum": 127 },
+                      "start_beat": { "type": "number", "minimum": 0 },
+                      "duration_beats": { "type": "number", "exclusiveMinimum": 0 },
+                      "channel": { "type": "integer", "minimum": 0, "maximum": 15 }
+                    }
+                  }
+                },
+                "cc": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["controller", "time_beat", "value"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "controller": { "type": "integer", "minimum": 0, "maximum": 127 },
+                      "time_beat": { "type": "number", "minimum": 0 },
+                      "value": { "type": "integer", "minimum": 0, "maximum": 127 }
+                    }
+                  }
+                },
+                "pitch_bend": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["time_beat", "value"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "time_beat": { "type": "number", "minimum": 0 },
+                      "value": { "type": "integer", "minimum": 0, "maximum": 16383 }
+                    }
+                  }
+                },
+                "position_bar": { "type": "integer", "minimum": 1 },
+                "position_beat": { "type": "integer", "minimum": 1 },
+                "start_offset_ms": { "type": "number", "minimum": 0 },
+                "length_bars": { "type": "number", "exclusiveMinimum": 0 },
+                "loop_count": { "type": "integer", "minimum": 1, "default": 1 },
+                "pitch_shift_semitones": { "type": "number" },
+                "time_stretch_ratio": { "type": "number", "exclusiveMinimum": 0 },
+                "fade_in_ms": { "type": "number", "minimum": 0 },
+                "fade_out_ms": { "type": "number", "minimum": 0 },
+                "gain_db": { "type": "number" }
+              },
+              "oneOf": [
+                { "required": ["file"] },
+                { "required": ["notes"] }
+              ]
+            }
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["uri"],
+              "additionalProperties": false,
+              "properties": {
+                "uri": { "type": "string", "minLength": 1 },
+                "preset": { "type": ["string", "null"] },
+                "params": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^[0-9]+$": { "type": "number" }
+                  },
+                  "additionalProperties": false
+                },
+                "sidechain_source": { "type": "string" }
+              }
+            }
+          },
+          "instrument": {
+            "type": "object",
+            "required": ["uri"],
+            "additionalProperties": false,
+            "properties": {
+              "uri": { "type": "string", "minLength": 1 },
+              "preset": { "type": ["string", "null"] },
+              "files": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "file_property_uri": { "type": "string" },
+              "bank": { "type": "integer", "minimum": 0 },
+              "program": { "type": "integer", "minimum": 0 },
+              "params": {
+                "type": "object",
+                "patternProperties": {
+                  "^[0-9]+$": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "sends": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["bus"],
+              "additionalProperties": false,
+              "properties": {
+                "bus": { "type": "string", "minLength": 1 },
+                "gain_db": { "type": "number" }
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["target", "points"],
+              "additionalProperties": false,
+              "properties": {
+                "target": { "type": "string", "enum": ["gain", "pan", "mute", "plugin"] },
+                "plugin_index": { "type": "integer", "minimum": 0 },
+                "param_index": { "type": "integer", "minimum": 0 },
+                "points": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["bar"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "bar": { "type": "integer", "minimum": 1 },
+                      "beat": { "type": "integer", "minimum": 1 },
+                      "value": { "type": "number" },
+                      "value_db": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "gain_db": { "type": "number" },
+          "pan": { "type": "number", "minimum": 0, "maximum": 1 },
+          "mute": { "type": "boolean" },
+          "solo": { "type": "boolean" },
+          "phase_invert": { "type": "boolean" },
+          "group": { "type": "string" }
+        }
+      }
+    },
+    "buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "type": { "type": "string", "enum": ["aux", "group"] },
+          "source_tracks": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["uri"],
+              "additionalProperties": false,
+              "properties": {
+                "uri": { "type": "string", "minLength": 1 },
+                "preset": { "type": ["string", "null"] },
+                "params": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^[0-9]+$": { "type": "number" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "gain_db": { "type": "number" },
+          "pan": { "type": "number", "minimum": 0, "maximum": 1 },
+          "mute": { "type": "boolean" }
+        }
+      }
+    },
+    "vcas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "controls"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "controls": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "gain_db": { "type": "number" }
+        }
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "bar"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "bar": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "master": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gain_db": { "type": "number" },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["uri"],
+            "additionalProperties": false,
+            "properties": {
+              "uri": { "type": "string", "minLength": 1 },
+              "preset": { "type": ["string", "null"] },
+              "params": {
+                "type": "object",
+                "patternProperties": {
+                  "^[0-9]+$": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": ["formats"],
+      "additionalProperties": false,
+      "properties": {
+        "formats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["format"],
+            "additionalProperties": false,
+            "properties": {
+              "format": { "type": "string", "enum": ["wav", "flac", "mp3", "ogg"] },
+              "bit_depth": { "type": "integer", "enum": [16, 24, 32] },
+              "sample_rate": { "type": "integer", "enum": [22050, 44100, 48000, 88200, 96000, 192000] }
+            }
+          }
+        },
+        "stems": { "type": "boolean" },
+        "stem_groups": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "include_click": { "type": "boolean" }
+      }
+    },
+    "analyze_only": { "type": "boolean" }
+  }
+}
