@@ -232,6 +232,18 @@ function emitRegion(lines, trackVar, track, region, spec, libraryBaseDir) {
     lines.push(`  local rgn = ARDOUR.LuaAPI.import_audio_file(Session, ${luaString(filePath)})`);
     lines.push('  if not rgn:isnil() then');
 
+    // Start offset
+    if (region.start_offset_ms && region.start_offset_ms > 0) {
+      const offsetSamples = Math.round((region.start_offset_ms / 1000) * spec.session.sample_rate);
+      lines.push(`    rgn:set_start(Temporal.timepos_t(${offsetSamples}))`);
+    }
+
+    // Trim to length
+    if (region.length_bars) {
+      const lenTicks = region.length_bars * beatsPerBar(region.position_bar || 1, spec.session.time_signature) * 1920;
+      lines.push(`    rgn:set_length(Temporal.timecnt_t.from_ticks(${lenTicks}))`);
+    }
+
     // Time-stretch / pitch-shift (audio only, uses Rubberband)
     if ((region.time_stretch_ratio && region.time_stretch_ratio !== 1.0) ||
         (region.pitch_shift_semitones && region.pitch_shift_semitones !== 0)) {

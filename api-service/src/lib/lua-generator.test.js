@@ -232,6 +232,22 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('Chorus'));
   });
 
+  it('emits start_offset_ms for audio regions', () => {
+    const spec = minimalSpec();
+    spec.tracks[0].regions[0].start_offset_ms = 500;
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('set_start'));
+    // 500ms at 48000 sample rate = 24000 samples
+    assert.ok(lua.includes('24000'));
+  });
+
+  it('emits length_bars trim for audio regions', () => {
+    const spec = minimalSpec();
+    spec.tracks[0].regions[0].length_bars = 2;
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('set_length'));
+  });
+
   it('emits MIDI CC events', () => {
     const spec = minimalSpec();
     spec.tracks = [{
