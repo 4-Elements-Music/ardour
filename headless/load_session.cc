@@ -35,6 +35,7 @@
 
 #include "ardour/ardour.h"
 #include "ardour/audioengine.h"
+#include "ardour/filename_extensions.h"
 #include "ardour/revision.h"
 #include "ardour/session.h"
 
@@ -92,7 +93,7 @@ static int    mcp_http_port = 0;
 static Session*
 load_session (string dir, string state)
 {
-	SessionEvent::create_per_thread_pool ("test", 512);
+	SessionEvent::create_per_thread_pool ("hardour", 4096);
 
 	test_receiver.listen_to (warning);
 	test_receiver.listen_to (error);
@@ -106,10 +107,35 @@ load_session (string dir, string state)
 		exit (EXIT_FAILURE);
 	}
 
-	if (backend_name == "None (Dummy)") {
-		engine->set_sample_rate (48000);
-		engine->set_buffer_size (1024);
+	/* Follow arlua's exact initialization pattern:
+	 * 1. Set backend
+	 * 2. Stop engine (prepare_engine pattern)
+	 * 3. Read session sample rate
+	 * 4. Set sample rate + buffer size
+	 * 5. Start engine
+	 * 6. Create session
+	 */
+
+	/* Stop engine if running (arlua calls engine->stop() in setup_lua) */
+	if (engine->running ()) {
+		engine->stop ();
 	}
+
+	/* Read sample rate from session file */
+	float        sr = 48000;
+	SampleFormat sf;
+	std::string  v;
+	std::string  s = Glib::build_filename (dir, state + statefile_suffix);
+
+	if (Session::get_info_from_path (s, sr, sf, v) == 0 && sr > 0) {
+		cerr << "hardour: session sample rate is " << sr << endl;
+	} else {
+		cerr << "hardour: cannot read session info, using 48000" << endl;
+		sr = 48000;
+	}
+
+	engine->set_sample_rate ((uint32_t)sr);
+	engine->set_buffer_size (1024);
 
 	if (engine->start () != 0) {
 		std::cerr << "Cannot start Audio/MIDI engine\n";
@@ -118,9 +144,8 @@ load_session (string dir, string state)
 
 	cerr << "hardour: engine started, loading session..." << endl;
 	Session* session = new Session (*engine, dir, state);
-	cerr << "hardour: session loaded, setting engine session..." << endl;
+	cerr << "hardour: session loaded" << endl;
 	engine->set_session (session);
-	cerr << "hardour: session ready" << endl;
 	return session;
 }
 
