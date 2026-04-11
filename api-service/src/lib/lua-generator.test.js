@@ -193,4 +193,14 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('to_slavable'));
     assert.ok(lua.includes('assign'));
   });
+
+  it('emits markers at bar positions', () => {
+    const spec = minimalSpec();
+    spec.markers = [{ name: 'Intro', bar: 1 }, { name: 'Chorus', bar: 9 }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('locations'));
+    assert.ok(lua.includes('add_range'));
+    assert.ok(lua.includes('Intro'));
+    assert.ok(lua.includes('Chorus'));
+  });
 });

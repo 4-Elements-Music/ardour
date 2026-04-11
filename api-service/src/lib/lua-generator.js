@@ -133,6 +133,20 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     }
   }
 
+  // ── 5c. Markers ──
+  if (spec.markers) {
+    lines.push('-- Markers');
+    lines.push('do');
+    lines.push('  local locs = Session:locations()');
+    for (const marker of spec.markers) {
+      const ticks = barToTicks(marker.bar, spec.session.time_signature);
+      lines.push(`  local loc = locs:add_range(Temporal.timepos_t.from_ticks(${ticks}), Temporal.timepos_t.from_ticks(${ticks}))`);
+      lines.push(`  if loc then loc:set_name(${luaString(marker.name)}) end`);
+    }
+    lines.push('end');
+    lines.push('');
+  }
+
   // ── 6. Session range ──
   const totalTicks = durationToTicks(spec.session.duration_bars, spec.session.time_signature);
   lines.push(`Session:maybe_update_session_range(Temporal.timepos_t(0), Temporal.timepos_t.from_ticks(${totalTicks}))`);
