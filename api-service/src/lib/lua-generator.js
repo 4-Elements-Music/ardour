@@ -102,6 +102,21 @@ export function generateLuaScript(spec, jobDir, libraryBaseDir) {
     lines.push('');
   }
 
+  // ── 4b. Group bus routing (deferred — tracks must exist first) ──
+  if (spec.buses) {
+    for (const bus of spec.buses) {
+      if (bus.type === 'group' && bus.source_tracks) {
+        const busVar = `bus_${safeName(bus.name)}`;
+        lines.push(`-- Route sources to group bus: ${bus.name}`);
+        for (const srcName of bus.source_tracks) {
+          lines.push(`do local src = Session:route_by_name(${luaString(srcName)})`);
+          lines.push(`if src and not src:isnil() then Session:add_internal_send(src, nil, ${busVar}) end end`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
   // ── 5. Master bus ──
   if (spec.master) {
     lines.push('-- Master bus');

@@ -194,6 +194,23 @@ describe('generateLuaScript', () => {
     assert.ok(lua.includes('assign'));
   });
 
+  it('routes source_tracks to group bus', () => {
+    const spec = minimalSpec();
+    spec.tracks = [
+      { name: 'Kick', type: 'audio', regions: [{ file: 'stems/kick.wav', position_bar: 1 }] },
+      { name: 'Snare', type: 'audio', regions: [{ file: 'stems/snare.wav', position_bar: 1 }] },
+    ];
+    spec.buses = [{
+      name: 'Drum Bus', type: 'group',
+      source_tracks: ['Kick', 'Snare'],
+      plugins: [{ uri: 'urn:ardour:a-comp#stereo' }],
+    }];
+    const lua = generateLuaScript(spec, '/tmp/job1', '/data/library');
+    assert.ok(lua.includes('add_internal_send'));
+    assert.ok(lua.includes('Kick'));
+    assert.ok(lua.includes('Drum Bus'));
+  });
+
   it('emits track groups for tracks sharing a group name', () => {
     const spec = minimalSpec();
     spec.tracks = [
