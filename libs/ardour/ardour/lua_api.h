@@ -434,6 +434,20 @@ namespace ARDOUR { namespace LuaAPI {
 			static const samplecnt_t      _bufsize;
 	};
 
+	/** Create a MIDI region on a track programmatically
+	 *
+	 * @param track MidiTrack to add the region to
+	 * @param position timeline position for the region
+	 * @param length duration of the region
+	 * @param name region name
+	 * @returns MidiRegion or nil on error
+	 */
+	std::shared_ptr<ARDOUR::MidiRegion> create_midi_region (
+		std::shared_ptr<ARDOUR::MidiTrack> track,
+		Temporal::timepos_t position,
+		Temporal::timecnt_t length,
+		const std::string& name);
+
 	std::shared_ptr<Evoral::Note<Temporal::Beats> >
 		new_noteptr (uint8_t, Temporal::Beats, Temporal::Beats, uint8_t, uint8_t);
 

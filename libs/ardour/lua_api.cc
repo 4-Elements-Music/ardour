@@ -31,6 +31,10 @@
 #include "ardour/internal_send.h"
 #include "ardour/lua_api.h"
 #include "ardour/luaproc.h"
+#include "ardour/midi_region.h"
+#include "ardour/midi_source.h"
+#include "ardour/midi_track.h"
+#include "ardour/playlist.h"
 #include "ardour/luascripting.h"
 #include "ardour/plugin.h"
 #include "ardour/plugin_insert.h"
@@ -1209,6 +1213,52 @@ LuaAPI::Vamp::process (const std::vector<float*>& d, ::Vamp::RealTime rt)
 	}
 	const float* const* bufs = &d[0];
 	return _plugin->process (bufs, rt);
+}
+
+std::shared_ptr<MidiRegion>
+LuaAPI::create_midi_region (std::shared_ptr<MidiTrack> track, Temporal::timepos_t position, Temporal::timecnt_t length, const std::string& name)
+{
+	if (!track) {
+		return std::shared_ptr<MidiRegion> ();
+	}
+
+	Session& session = track->session ();
+
+	/* create a writable MIDI source */
+	std::string path = session.new_midi_source_path (name);
+	if (path.empty ()) {
+		return std::shared_ptr<MidiRegion> ();
+	}
+
+	std::shared_ptr<Source> src = SourceFactory::createWritable (
+		DataType::MIDI, session, path, session.sample_rate (), false, false);
+
+	if (!src) {
+		return std::shared_ptr<MidiRegion> ();
+	}
+
+	/* set up region properties */
+	PropertyList plist;
+	plist.add (Properties::start, timepos_t (Temporal::BeatTime));
+	plist.add (Properties::length, length);
+	plist.add (Properties::name, name);
+	plist.add (Properties::layer, 0);
+	plist.add (Properties::whole_file, false);
+
+	SourceList srclist;
+	srclist.push_back (src);
+
+	std::shared_ptr<Region> r = RegionFactory::create (srclist, plist, true);
+	std::shared_ptr<MidiRegion> mr = std::dynamic_pointer_cast<MidiRegion> (r);
+
+	if (!mr) {
+		return std::shared_ptr<MidiRegion> ();
+	}
+
+	/* add to track's playlist */
+	track->playlist ()->add_region (mr, position);
+
+	return mr;
 }
 
 std::shared_ptr<Evoral::Note<Temporal::Beats> >
