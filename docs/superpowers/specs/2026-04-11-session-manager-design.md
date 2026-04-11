@@ -80,6 +80,7 @@ Tests use a `FakeArdourProcess` helper — a lightweight HTTP server that simula
 New npm packages required (not currently in `package.json`):
 - `@fastify/multipart` — file upload handling
 - `@fastify/static` — serving the developer test app
+- `p-queue` — per-session async action queue (concurrency: 1)
 
 ## Session Lifecycle
 
@@ -101,6 +102,8 @@ Create a new Ardour session. Returns `202 Accepted` immediately — the client p
 ```
 
 All fields optional. Defaults: `sample_rate: 48000`, `session_name: auto-generated (includes session ID)`, `tempo: 120`, `time_signature: 4/4`, `gui: false`.
+
+**Session name sanitization:** Alphanumeric, hyphens, underscores only. Max 64 characters. Path separators and null bytes are stripped. This name becomes a filesystem directory name.
 
 Session IDs are generated with `crypto.randomUUID()`.
 
@@ -222,6 +225,14 @@ Upload an audio file to the session's upload directory. The returned path can th
 
 The returned `path` is an absolute filesystem path that can be passed to `LuaAPI.import_audio_file()` via the `session/lua_eval` tool.
 
+**Errors:**
+- `404` — unknown session ID
+- `409` — session in `stopping`/`dead` state, or duplicate filename
+- `400` — invalid extension or filename
+- `413` — file too large or session upload quota exceeded
+
+Uploads are allowed in `starting` and `ready` states (uploading files doesn't require Ardour to be ready).
+
 #### `GET /v1/tools`
 
 Tool discovery. Returns the catalog of available MCP tools with their JSON schemas and categories.
@@ -248,7 +259,9 @@ The tool schemas are loaded from `tools_json.inc` at startup. This endpoint is a
 
 ```
 starting → ready → (active use) → stopping → stopped
+         → dead (startup timeout or crash)
                  → unhealthy → stopping → stopped
+                             → dead (crash during shutdown)
                  → dead (crash detected)
 ```
 
@@ -307,7 +320,7 @@ Proxy a single MCP tool call to the session's Ardour instance.
 **Errors:**
 - `400` — unknown tool name or invalid params (validated against MCP tool schemas)
 - `404` — unknown session ID
-- `409` — session not in `ready` state
+- `409` — session not in `ready` state (`NOT_READY` for `starting`/`unhealthy`, `SESSION_STOPPING` for `stopping`)
 - `429` — action queue full
 - `502` — Ardour instance unreachable
 - `504` — Ardour instance timed out (10s default) or queue wait timed out
@@ -499,7 +512,7 @@ To export multiple formats, make separate requests — each produces an independ
 }
 ```
 
-**`GET /v1/sessions/:id/exports/:export_id`** — poll for completion.
+**`GET /v1/sessions/:id/exports/:export_id`** — poll for completion. Returns `404` if `export_id` is unknown.
 
 **Response (complete):**
 ```json
@@ -514,7 +527,7 @@ To export multiple formats, make separate requests — each produces an independ
 
 **`GET /v1/sessions/:id/exports/:export_id/file`** — download the rendered audio file.
 
-**Timeouts:** Export has a 120s timeout. If exceeded, status becomes `failed`. Export records are cleaned up after `outputTtlMs` (same as batch jobs).
+**Timeouts:** Export has a 120s timeout. If exceeded, status becomes `failed`. Export records are cleaned up after `outputTtlMs` (existing config key from the batch API, default 1 hour).
 
 **Session deletion during export:** Export is cancelled, marked `failed`.
 
@@ -555,7 +568,7 @@ If `export_id` is provided, analysis runs on an existing export (avoids redundan
 }
 ```
 
-**`GET /v1/sessions/:id/analysis/:analysis_id`** — poll for completion.
+**`GET /v1/sessions/:id/analysis/:analysis_id`** — poll for completion. Returns `404` if `analysis_id` is unknown. If `analysisTimeoutMs` is exceeded, analysis status becomes `failed` with error `"Analysis timed out"`. The ffmpeg sub-process is killed on timeout.
 
 **Response (complete):**
 ```json
@@ -804,12 +817,10 @@ The MCP HTTP surface uses slash-form tool names. The spec examples use these rea
 | Save | `session/save` | (none) |
 | Undo | `session/undo` | (none) |
 | Redo | `session/redo` | (none) |
+| Get fader | `track/get_fader` | `id` — returns `position` and `db` |
 | Store mixer scene | `session/store_mixer_scene` | `index` |
 | Recall mixer scene | `session/recall_mixer_scene` | `index` |
 | Quick snapshot | `session/quick_snapshot` | `name` (optional) |
-| Store mixer scene | `session/store_mixer_scene` | `index` |
-| Recall mixer scene | `session/recall_mixer_scene` | `index` |
-| Get fader | `track/get_fader` | `id` — returns `position` and `db` |
 | Lua eval | `session/lua_eval` | `code` (string, max 64KB) |
 
 **Note on route identification:** Most tools require a route `id` (string), not a name. Get IDs from `tracks/list` or from the response of `tracks/add`. The master bus appears in `tracks/list` output — identify it by its name (typically "Master").
@@ -837,6 +848,7 @@ maxUploadBytes: parseInt(process.env.MAX_UPLOAD_BYTES || '104857600', 10),  // 1
 actionQueueDepth: parseInt(process.env.ACTION_QUEUE_DEPTH || '20', 10),
 actionQueueTimeoutMs: parseInt(process.env.ACTION_QUEUE_TIMEOUT_MS || '120000', 10),  // 2 min
 luaEvalMaxBytes: parseInt(process.env.LUA_EVAL_MAX_BYTES || '65536', 10),  // 64KB
+actionTimeoutMs: parseInt(process.env.ACTION_TIMEOUT_MS || '10000', 10),  // per-action MCP HTTP timeout
 luaEvalTimeoutMs: parseInt(process.env.LUA_EVAL_TIMEOUT_MS || '30000', 10),
 logRingBufferSize: parseInt(process.env.LOG_RING_BUFFER_SIZE || '10000', 10),
 analysisTimeoutMs: parseInt(process.env.ANALYSIS_TIMEOUT_MS || '600000', 10),  // 10 min
@@ -889,6 +901,224 @@ ffprobeBin: process.env.FFPROBE_BIN || 'ffprobe',
 
 All error responses include `error_code` (machine-readable) and `error` (human-readable) fields for AI client parsing.
 
+## Module API Reference
+
+This section defines the internal APIs so each module can be implemented independently.
+
+### Session Object Shape
+
+The in-memory representation of a session (managed by `session-manager.js`):
+
+```js
+{
+  id: 'uuid-string',               // crypto.randomUUID()
+  status: 'starting',              // starting|ready|unhealthy|stopping|stopped|dead
+  sessionName: 'my-mix',           // sanitized name
+  sampleRate: 48000,
+  tempo: 120,
+  timeSignature: { numerator: 4, denominator: 4 },
+  gui: false,
+  port: 4821,                      // allocated MCP HTTP port
+  mcpBaseUrl: 'http://127.0.0.1:4821/mcp',
+  child: ChildProcess,             // Node.js child process reference
+  pid: 12345,                      // child.pid, written to ardour.pid file
+  sessionDir: '/tmp/ardour-sessions/uuid/...',
+  createdAt: Date.now(),
+  lastActivity: Date.now(),
+  lastSave: Date.now(),
+  healthFailCount: 0,              // consecutive health check failures
+  exitCode: null,                  // set on crash/exit
+  stderrTail: [],                  // last 50 lines of stderr
+  logBuffer: LogBuffer,            // ring buffer instance
+  actionQueue: PQueue,             // p-queue instance (concurrency: 1)
+  exports: Map,                    // export_id -> export record
+  analyses: Map,                   // analysis_id -> analysis record
+  uploadBytesUsed: 0,              // running total for quota
+  exportBytesUsed: 0,              // running total for quota
+}
+```
+
+### session-manager.js
+
+```js
+class SessionManager {
+  constructor({ spawner = spawn, clock = globalClock, httpClient = fetch, config })
+
+  async create({ sampleRate, sessionName, tempo, timeSignature, gui })
+    // Returns: { id, status: 'starting' }
+    // Spawns process, starts health polling, writes PID file
+
+  async destroy(sessionId, { timeout = 5000 } = {})
+    // Graceful shutdown sequence. Idempotent.
+
+  get(sessionId)           // Returns session object or null
+  listAll()                // Returns array of all session objects
+  activeCount()            // Number of non-terminal sessions
+
+  // Called internally:
+  _onProcessExit(sessionId, code)   // Crash detection handler
+  _onHealthCheckFail(sessionId)     // Increment failCount, trigger shutdown at 3
+  _applyInitialSetup(session)       // Tempo/time-sig via lua_eval after MCP ready
+}
+```
+
+Health checking is owned by `SessionManager` (not a separate class). The `healthChecker` in the shutdown code refers to a `setInterval` ID stored on the manager that runs `_checkHealth()` on a staggered schedule. `stop()` clears the interval.
+
+### action-proxy.js
+
+```js
+class ActionProxy {
+  constructor({ httpClient = fetch, toolSchemas, config })
+
+  async execute(session, tool, params)
+    // Validates tool name + params against schemas
+    // Enqueues on session.actionQueue
+    // Proxies to session.mcpBaseUrl
+    // Returns MCP HTTP response body
+
+  async executeBatch(session, actions, { stopOnError = true, timeoutMs = 60000 } = {})
+    // Occupies single queue slot
+    // Returns { results, completed, total, timed_out }
+
+  validateTool(tool, params)
+    // Returns { valid, errors } — called before queueing
+}
+```
+
+### export-service.js
+
+```js
+class ExportService {
+  constructor({ actionProxy, config })
+
+  async startExport(session, { format, bitDepth, sampleRate, name })
+    // Creates export record in session.exports
+    // Runs lua_eval via actionProxy to trigger SimpleExport
+    // Scans export dir for output files
+    // Returns { exportId, status }
+
+  async startAnalysis(session, { format, sampleRate, exportId })
+    // If exportId provided, uses existing export file
+    // Otherwise triggers new export first
+    // Runs ffmpeg/ffprobe analysis
+    // For per-track: solos each track, exports, analyzes via actionProxy
+    // Returns { analysisId, status }
+
+  getExport(session, exportId)    // Returns export record or null
+  listExports(session)            // Returns array of export records
+  getAnalysis(session, analysisId) // Returns analysis record or null
+}
+```
+
+Export preset UUID mapping:
+- `wav` 24-bit at session rate: `75969a1c-3133-4694-864b-a1fa50e43348`
+- `wav` 16-bit 44.1kHz (CD): `df340c53-88b5-4342-a1c8-58e0704872ea`
+- `flac`: use the WAV preset — Ardour's SimpleExport resolves the actual encoder from the preset. If this doesn't work for FLAC, discover presets at runtime by scanning `share/export/*.preset` files for format-matching UUIDs. This is a known implementation risk to be resolved during the C++ spike.
+
+### port-pool.js, timeout-reaper.js, log-buffer.js
+
+These are straightforward — the existing spec sections fully define their behavior. Constructor signatures are in the "Design for Testability" section.
+
+### MCP HTTP Wire Protocol
+
+The MCP HTTP surface uses **Streamable HTTP MCP protocol** at a single endpoint:
+
+```
+POST http://127.0.0.1:<port>/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "tracks/add",
+    "arguments": {"name": "Kick", "type": "audio"}
+  },
+  "id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [{"type": "text", "text": "{\"id\":\"42\",\"name\":\"Kick\"}"}]
+  },
+  "id": 1
+}
+```
+
+The `action-proxy.js` extracts the `content[0].text` field and parses it as JSON for the API response. Error responses use JSON-RPC error format with negative error codes (e.g., `-32602` for invalid params).
+
+Tool names accept slash, underscore, and dot forms interchangeably: `tracks/add`, `tracks_add`, `tracks.add`.
+
+The HTTP client should use Node.js built-in `fetch()` (available in Node 18+). The `httpClient` dependency injection accepts any function with the same signature as `fetch`.
+
+### Tool Schema Access from Node.js
+
+The `tools_json.inc` file is a C++ include containing JSON string literals. To make it accessible to Node.js, the implementation plan should include a **build step** that extracts the tool definitions into a `tools.json` file:
+
+```bash
+# Extract JSON from the C++ include file (one-time, re-run when tools change)
+node -e "
+  const src = require('fs').readFileSync('libs/surfaces/mcp_http/tools_json.inc', 'utf8');
+  const matches = [...src.matchAll(/R\"json\(([\s\S]*?)\)json\"/g)];
+  const tools = matches.map(m => JSON.parse(m[1]));
+  require('fs').writeFileSync('api-service/src/schemas/mcp-tools.json', JSON.stringify(tools, null, 2));
+"
+```
+
+Alternatively, on first startup the API service can query the running MCP HTTP surface's `tools/list` endpoint to get the live tool catalog. The extracted file is preferred for validation without a running Ardour instance.
+
+### Composition Root (server.js wiring)
+
+```js
+// server.js — composition root
+import { SessionManager } from './lib/session-manager.js';
+import { ActionProxy } from './lib/action-proxy.js';
+import { ExportService } from './lib/export-service.js';
+import { PortPool } from './lib/port-pool.js';
+import { TimeoutReaper } from './lib/timeout-reaper.js';
+import toolSchemas from './schemas/mcp-tools.json' assert { type: 'json' };
+
+const portPool = new PortPool({ start: config.mcpPortRangeStart, end: config.mcpPortRangeEnd });
+await portPool.scan();  // startup port scan
+
+const sessionManager = new SessionManager({ config, portPool });
+const actionProxy = new ActionProxy({ toolSchemas, config });
+const exportService = new ExportService({ actionProxy, config });
+const reaper = new TimeoutReaper({ sessionManager, config });
+reaper.start();
+
+// Decorate app for route access
+app.decorate('sessionManager', sessionManager);
+app.decorate('actionProxy', actionProxy);
+app.decorate('exportService', exportService);
+
+// Register routes
+app.register(sessionRoutes, { prefix: '/v1' });
+app.register(toolRoutes, { prefix: '/v1' });
+
+// Shutdown
+app.addHook('onClose', async () => {
+  reaper.stop();
+  sessionManager.stopHealthChecks();
+  for (const session of sessionManager.listAll()) {
+    await sessionManager.destroy(session.id, { timeout: 5000 });
+  }
+});
+```
+
+### Build Order
+
+The C++ and Node.js work can partially overlap:
+
+1. **C++ first:** Extend `hardour` binary + add `session/lua_eval` MCP tool. Until this is done, sessions cannot be spawned.
+2. **Node.js in parallel (with mocks):** `port-pool.js`, `log-buffer.js`, `timeout-reaper.js`, `action-proxy.js` can all be implemented and tested using `FakeArdourProcess` (a simple `http.createServer` that responds to `POST /mcp` with canned JSON-RPC responses).
+3. **Integration after C++ is done:** Wire `session-manager.js` to real `hardour`, run end-to-end tests.
+4. **Developer test app:** Can be built any time — it's just a frontend consuming the REST API.
+
 ## File Structure
 
 ```
@@ -908,7 +1138,7 @@ ardour/
         sessions.js           # NEW: session CRUD + upload + actions + export + analyze + logs
         tools.js              # NEW: tool discovery endpoint
       lib/
-        session-manager.js    # NEW: spawn, track, kill Ardour instances
+        session-manager.js    # NEW: spawn, track, kill, health-check Ardour instances
         port-pool.js          # NEW: port allocation/release + startup scan
         timeout-reaper.js     # NEW: idle session cleanup + auto-save + dir cleanup
         action-proxy.js       # NEW: proxy to MCP HTTP + validation + per-session queue
@@ -922,6 +1152,7 @@ ardour/
         job-queue.js          # Existing (unchanged)
       schemas/
         job-spec.json         # Existing (unchanged)
+        mcp-tools.json        # NEW: extracted from tools_json.inc (build step)
     test/
       helpers/
         fake-ardour.js        # Mock Ardour process for integration tests
