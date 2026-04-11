@@ -169,7 +169,9 @@ Session details.
 }
 ```
 
-**Status values:** `starting`, `ready`, `unhealthy`, `stopping`, `dead`.
+**Status values:** `starting`, `ready`, `unhealthy`, `stopping`, `stopped`, `dead`.
+
+`stopped` is a terminal state — the session has been successfully shut down. The session resource is removed shortly after the DELETE response is sent, so `GET` will return `404` once cleanup completes.
 
 When `dead`: response includes `exit_code` and `stderr_tail` (last 50 lines of Ardour stderr). Returns `200` with `status: "dead"` — the session resource still exists temporarily, it just failed.
 
@@ -204,7 +206,9 @@ Upload an audio file to the session's upload directory. The returned path can th
 **Constraints:**
 - Max file size: 100MB (configurable)
 - Allowed extensions: `.wav`, `.flac`, `.aiff`, `.ogg`, `.mp3`, `.mid`, `.midi`, `.sf2`, `.sfz`
+- **Filename sanitization:** Strip all path separators (`/`, `\`) from the uploaded filename. Reject filenames starting with `.`. Validate that the resolved write path is within the uploads directory (same pattern as `resolveLibraryPath` in `sanitizer.js`). This prevents path traversal attacks via crafted filenames like `../../etc/crontab`.
 - **Duplicate filenames:** If a file with the same name already exists, the upload is rejected with `409 Conflict`. The client should use a unique name or delete the previous file first. This prevents overwriting files that Ardour may be actively reading from.
+- **Per-session disk quota:** configurable max total upload size per session (default 1GB via `maxSessionUploadBytes`). Returns `413` when exceeded. Export files count toward a separate limit (`maxSessionExportBytes`, default 2GB). This prevents unbounded disk usage.
 - Upload directory is created lazily on first upload with `mkdir({ recursive: true })`.
 
 **Response:**
@@ -335,6 +339,8 @@ Send multiple tool calls in sequence. The entire batch occupies a single queue s
 
 `timeout_ms` defaults to `60000` (60s). If the aggregate time exceeds this, remaining actions are skipped.
 
+**Max batch size:** 100 actions per batch (configurable via `maxBatchSize`). Returns `400` if exceeded.
+
 **Response:**
 ```json
 {
@@ -349,6 +355,8 @@ Send multiple tool calls in sequence. The entire batch occupies a single queue s
 ```
 
 When `stop_on_error: true` and an action fails, subsequent actions are skipped and their results are `null`.
+
+When `timeout_ms` is exceeded, remaining actions are skipped with results `null`. The response HTTP status is always `200` — partial completion is indicated by `completed < total`. A `timed_out: true` field is added to the response when the timeout fired.
 
 ## File Upload and Import
 
@@ -371,11 +379,11 @@ When `stop_on_error: true` and an action fails, subsequent actions are skipped a
 
 To avoid requiring clients to craft raw Lua, the spec defines standard snippets. These are documented here and in the test app's help section. The API does NOT template them — the client (AI or test app) constructs the Lua code using these patterns.
 
-**Constants:** Ardour uses 1920 ticks per beat. To convert bar/beat to ticks at a given time signature: `ticks = ((bar - 1) * numerator * (4 / denominator) + (beat - 1)) * 1920`.
+**Constants:** Ardour uses 1920 ticks per quarter note. To convert bar/beat to ticks at a given time signature: `ticks = ((bar - 1) * numerator * (4 / denominator) + (beat - 1)) * 1920`. In this formula, `beat` always means a quarter-note beat regardless of time signature. In 6/8 time, one bar = 6 * (4/8) = 3 quarter-note beats = 5760 ticks. The `beat` parameter in this formula is NOT an eighth-note beat in compound meters.
 
 **Gain values:** Ardour uses linear gain internally, not dB. Conversion: `linear = 10 ^ (dB / 20)`. Common values: 0dB = 1.0, -3dB = 0.7079, -6dB = 0.5012, -12dB = 0.2512, -inf = 0.0.
 
-**Pan values:** Ardour pan convention: `0.0 = left, 0.5 = center, 1.0 = right`. Note: this matches the `track/set_pan` MCP tool convention.
+**Pan values:** Ardour pan convention: `0.0 = right, 0.5 = center, 1.0 = left`. This is counterintuitive but matches Ardour's internal representation and the `track/set_pan` MCP tool. To pan 30% right from center: `0.5 - 0.3 * 0.5 = 0.35`.
 
 **Import audio onto track:**
 ```lua
@@ -466,6 +474,8 @@ Trigger audio export on a live session. Async — returns 202 with poll URL.
 
 Supported formats: `wav`, `flac`. (`mp3` and `ogg` depend on Ardour build-time encoder availability — document in the test app but don't guarantee.)
 
+**Name sanitization:** The `name` field is used as the export filename. Strip path separators (`/`, `\`), reject names starting with `.`, reject names containing null bytes. The export service always sets the folder to the session's `exports/` directory server-side — the client cannot override the export destination.
+
 To export multiple formats, make separate requests — each produces an independent export with its own `export_id`.
 
 **Response (202):**
@@ -478,6 +488,16 @@ To export multiple formats, make separate requests — each produces an independ
 ```
 
 **`GET /v1/sessions/:id/exports`** — list all exports for this session.
+
+**Response:**
+```json
+{
+  "exports": [
+    {"export_id": "exp-xyz", "status": "complete", "filename": "mix-v1.wav", "size": 4521984, "created_at": "..."},
+    {"export_id": "exp-abc", "status": "exporting", "created_at": "..."}
+  ]
+}
+```
 
 **`GET /v1/sessions/:id/exports/:export_id`** — poll for completion.
 
@@ -498,6 +518,14 @@ To export multiple formats, make separate requests — each produces an independ
 
 **Session deletion during export:** Export is cancelled, marked `failed`.
 
+**Error cases:**
+- Invalid `format` → `400`
+- Session not `ready` → `409`
+- Concurrent exports are allowed (each gets its own `export_id`)
+- Disk quota exceeded → `413`
+
+**Partial file cleanup:** If export fails or is cancelled, any partially written files in the export directory are removed.
+
 ### `POST /v1/sessions/:id/analyze`
 
 Analyze the current session. Async — returns 202 with poll URL. Internally exports, then runs `ffmpeg`/`ffprobe` analysis on the rendered file.
@@ -512,6 +540,11 @@ Analyze the current session. Async — returns 202 with poll URL. Internally exp
 ```
 
 If `export_id` is provided, analysis runs on an existing export (avoids redundant re-rendering). If omitted, a new export is triggered first.
+
+**Error cases for `export_id`:**
+- Export not found → `404`
+- Export still in progress → `409` with `{"error_code": "EXPORT_PENDING"}`
+- Format/sample_rate mismatch with existing export is ignored (analysis uses whatever the export produced)
 
 **Response (202):**
 ```json
@@ -645,7 +678,7 @@ Ardour process stdout/stderr is captured in a **ring buffer** per session (max 1
 
 This prevents unbounded memory growth for long-running sessions. A 2-hour session with verbose logging stays within ~1-2MB per session.
 
-`GET /v1/sessions/:id/logs?since=<cursor>` — returns new log lines since the cursor position. The test app polls this every 2 seconds when the log panel is open.
+`GET /v1/sessions/:id/logs?since=<cursor>` — returns new log lines since the cursor position. The test app polls this every 2 seconds when the log panel is open. The cursor is a monotonically-increasing sequence number (not a line index) so it remains valid even as old lines are evicted from the ring buffer.
 
 **Response:**
 ```json
@@ -657,6 +690,12 @@ This prevents unbounded memory growth for long-running sessions. A 2-hour sessio
   "cursor": "142"
 }
 ```
+
+**Error handling:**
+- Invalid/missing `since` → returns all available lines (from oldest in ring buffer)
+- `since` older than oldest available → returns all available lines (gap is silent)
+- Dead session → logs are still available until the session record is cleaned up (5 min)
+- Log line `text` values are raw Ardour output and may contain arbitrary content — clients should treat them as untrusted
 
 ## Developer Test App
 
@@ -736,7 +775,7 @@ The health endpoint (`GET /v1/health`) is extended:
   "status": "ok",
   "queue_depth": 0,
   "active_jobs": 0,
-  "sessions": {"active": 2, "max": 5, "available_ports": 98}
+  "sessions": {"active": 2, "max": 5}
 }
 ```
 
@@ -746,27 +785,31 @@ The MCP HTTP surface uses slash-form tool names. The spec examples use these rea
 
 | Operation | Tool Name | Key Params |
 |-----------|-----------|------------|
-| Add track | `tracks/add` | `name`, `type` ("audio"/"midi"), `channels` |
+| Add track | `tracks/add` | `name`, `type` ("audio"/"midi"), `inputChannels`, `outputChannels` |
 | Add bus | `buses/add` | `name`, `type` |
 | List tracks | `tracks/list` | (none) — returns all routes including master bus |
 | Get track info | `track/get_info` | `id` — returns fader, pan, mute, solo, sends, plugins |
 | Set fader | `track/set_fader` | `id`, `db` |
-| Set pan | `track/set_pan` | `id`, `value` (0.0=left, 0.5=center, 1.0=right) |
-| Set mute | `track/set_mute` | `id`, `mute` (boolean) |
-| Set solo | `track/set_solo` | `id`, `solo` (boolean) |
+| Set pan | `track/set_pan` | `id`, `position` (0.0=right, 0.5=center, 1.0=left) |
+| Set mute | `track/set_mute` | `id`, `value` (boolean) |
+| Set solo | `track/set_solo` | `id`, `value` (boolean) |
 | Add send | `track/add_send` | `id`, `targetId`, `db` |
 | Set send level | `track/set_send_level` | `id`, `sendIndex`, `db` |
 | List plugins | `plugin/list_available` | `search` (optional filter string) |
 | Add plugin | `plugin/add` | `id` (route), `pluginId` |
 | Get plugin params | `plugin/get_description` | `id` (route), `pluginIndex` |
 | Set plugin param | `plugin/set_parameter` | `id`, `pluginIndex`, `parameterIndex`, `value` |
-| Add marker | `markers/add` | `name`, `beats` |
+| Add marker | `markers/add` | `name`, `bar`, `beat`, `type` |
 | Session info | `session/get_info` | (none) — returns name, sample rate, tempo, transport |
 | Save | `session/save` | (none) |
 | Undo | `session/undo` | (none) |
 | Redo | `session/redo` | (none) |
 | Store mixer scene | `session/store_mixer_scene` | `index` |
 | Recall mixer scene | `session/recall_mixer_scene` | `index` |
+| Quick snapshot | `session/quick_snapshot` | `name` (optional) |
+| Store mixer scene | `session/store_mixer_scene` | `index` |
+| Recall mixer scene | `session/recall_mixer_scene` | `index` |
+| Get fader | `track/get_fader` | `id` — returns `position` and `db` |
 | Lua eval | `session/lua_eval` | `code` (string, max 64KB) |
 
 **Note on route identification:** Most tools require a route `id` (string), not a name. Get IDs from `tracks/list` or from the response of `tracks/add`. The master bus appears in `tracks/list` output — identify it by its name (typically "Master").
@@ -797,6 +840,9 @@ luaEvalMaxBytes: parseInt(process.env.LUA_EVAL_MAX_BYTES || '65536', 10),  // 64
 luaEvalTimeoutMs: parseInt(process.env.LUA_EVAL_TIMEOUT_MS || '30000', 10),
 logRingBufferSize: parseInt(process.env.LOG_RING_BUFFER_SIZE || '10000', 10),
 analysisTimeoutMs: parseInt(process.env.ANALYSIS_TIMEOUT_MS || '600000', 10),  // 10 min
+maxBatchSize: parseInt(process.env.MAX_BATCH_SIZE || '100', 10),
+maxSessionUploadBytes: parseInt(process.env.MAX_SESSION_UPLOAD_BYTES || '1073741824', 10),  // 1GB
+maxSessionExportBytes: parseInt(process.env.MAX_SESSION_EXPORT_BYTES || '2147483648', 10),  // 2GB
 
 // Analysis
 ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
@@ -830,6 +876,16 @@ ffprobeBin: process.env.FFPROBE_BIN || 'ffprobe',
 | Lua eval too large | `400` with `{"error_code": "LUA_CODE_TOO_LARGE"}` |
 | Lua eval runtime error | Proxied as `{"success": false, "error": "..."}` from MCP |
 | ffmpeg not available | `501` with `{"error_code": "ANALYSIS_UNAVAILABLE"}` |
+| Batch too large | `400` with `{"error_code": "BATCH_TOO_LARGE", "max": 100}` |
+| Batch timed out | `200` with partial results + `"timed_out": true` |
+| Export invalid format | `400` with `{"error_code": "INVALID_FORMAT"}` |
+| Export session not ready | `409` with `{"error_code": "NOT_READY"}` |
+| Export disk quota exceeded | `413` with `{"error_code": "DISK_QUOTA_EXCEEDED"}` |
+| Export name invalid | `400` with `{"error_code": "INVALID_EXPORT_NAME"}` |
+| Analyze export not found | `404` with `{"error_code": "EXPORT_NOT_FOUND"}` |
+| Analyze export pending | `409` with `{"error_code": "EXPORT_PENDING"}` |
+| Upload path traversal | `400` with `{"error_code": "INVALID_FILENAME"}` |
+| Upload disk quota exceeded | `413` with `{"error_code": "SESSION_UPLOAD_QUOTA"}` |
 
 All error responses include `error_code` (machine-readable) and `error` (human-readable) fields for AI client parsing.
 
@@ -916,6 +972,12 @@ Add a new tool handler that:
 
 **Thread safety:** All Lua execution runs on the main event loop thread (via `call_slot`), not the HTTP thread. This ensures Session mutations are safe. The HTTP handler uses a condition variable or promise to wait for the event loop callback to complete before returning the response.
 
+**Security note on file access:** The Lua sandbox strips `io`/`os` but Ardour's own APIs (`import_audio_file`, `set_folder`) can read/write arbitrary filesystem paths. This is an accepted risk for V1 — the `lua_eval` tool is a power-user escape hatch gated behind auth (when added). The first-class endpoints (`/upload`, `/export`) handle paths server-side with sanitization. Clients should prefer those endpoints over raw `lua_eval` for file operations.
+
+**Print output limit:** The Lua `print()` handler captures output in a C++ string buffer capped at 64KB. Output beyond this limit is silently truncated. This prevents memory exhaustion from `print`-heavy scripts.
+
+**Blocking C function timeout:** Some Lua calls like `run_export()` invoke C functions that block without returning to Lua. The `lua_sethook` timeout cannot interrupt these — it only fires between Lua instructions. The HTTP-side action proxy timeout (30s for lua_eval) serves as the backstop. For this reason, clients should use `POST /v1/sessions/:id/export` (which manages the lifecycle properly) rather than raw `lua_eval` for exports.
+
 **Estimated size:** ~250 lines.
 
 ## Multi-Instance Validation
@@ -939,4 +1001,5 @@ The same should hold for hardour instances once the binary is extended, since th
 - **Session directories in `/tmp`**: Subject to OS cleanup on reboot. Configure `SESSIONS_DIR` to a persistent path for long-running sessions.
 - **A/B comparison**: Use `session/store_mixer_scene` and `session/recall_mixer_scene` for mixer snapshots. Full session branching (clone) is not supported in this version.
 - **Real-time metering**: No tool for reading live signal levels (as opposed to fader position). The AI cannot monitor actual signal during playback. Use export+analyze for level feedback.
-- **Relative fader adjustment**: `track/set_fader` is absolute only. To adjust by a delta, the AI must read the current value first via `track/get_fader`, then compute the new value.
+- **Existing bug (pre-existing)**: `/v1/jobs/:id/output/:filename` in `jobs.js` has no path traversal check on the filename parameter. This should be fixed alongside the session work by applying the same sanitization used for uploads.
+- **Relative fader adjustment**: `track/set_fader` is absolute only. To adjust by a delta, the AI must read the current value first via `track/get_info` (which returns fader, pan, mute, solo, sends, plugins), then compute the new value.
