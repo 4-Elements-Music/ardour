@@ -105,6 +105,14 @@ MCPHttp::set_state (const XMLNode& node, int version)
 	if (!node.get_property (X_("port"), port)) {
 		read_global_protocol_property ("port", port);
 	}
+	/* Environment variable override for programmatic launch (e.g., session manager) */
+	const char* env_port = getenv ("MCP_HTTP_PORT");
+	if (env_port) {
+		int env_port_val = atoi (env_port);
+		if (env_port_val >= 1 && env_port_val <= 65535) {
+			port = (uint32_t)env_port_val;
+		}
+	}
 	if (port >= 1 && port <= 65535) {
 		set_port ((uint16_t)port);
 	}
