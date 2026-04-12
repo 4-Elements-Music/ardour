@@ -169,6 +169,7 @@ export async function sessionRoutes(app) {
     s.uploadBytesUsed += size;
 
     const uploadId = app.sessionManager.registerUpload(req.params.id, sanitized, size, destPath);
+    // TODO(audio_region_add): remove `path` and `size` once upload_id-based flow is the only path (after Task 8). Kept here only so existing clients don't break mid-migration.
     return reply.code(200).send({
       upload_id: uploadId,
       filename: sanitized,

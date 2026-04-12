@@ -278,6 +278,11 @@ export class SessionManager {
     });
   }
 
+  /**
+   * Register an uploaded file against a session. Returns an opaque id of the form
+   * `upl_<16-hex-chars>` (generated from 8 random bytes). Callers receive only
+   * this id and resolve to a path server-side via getUploadPath().
+   */
   registerUpload(sessionId, filename, bytes, path) {
     const s = this._sessions.get(sessionId);
     if (!s) return null;

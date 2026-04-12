@@ -173,6 +173,14 @@ describe('SessionManager uploads registry', () => {
     assert.ok(typeof list[0].created_at === 'string');
   });
 
+  it('returns distinct ids across multiple uploads', async () => {
+    const sm = makeSm();
+    const r = await sm.create({ sessionName: 's1' });
+    const id1 = sm.registerUpload(r.session_id, 'kick.wav', 10, '/tmp/x/kick.wav');
+    const id2 = sm.registerUpload(r.session_id, 'snare.wav', 12, '/tmp/x/snare.wav');
+    assert.notEqual(id1, id2);
+  });
+
   it('unknown session id yields null / empty', () => {
     const sm = makeSm();
     assert.equal(sm.registerUpload('nope', 'a', 1, '/x'), null);
