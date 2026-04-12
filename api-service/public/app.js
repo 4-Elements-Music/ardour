@@ -4,8 +4,11 @@ const state = {
 };
 
 async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
+  const opts = { method, headers: {} };
+  if (body !== undefined && body !== null) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
   const res = await fetch(path, opts);
   const text = await res.text();
   let json;
