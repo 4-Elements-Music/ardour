@@ -61,6 +61,57 @@ export async function sessionRoutes(app) {
     await app.sessionManager.destroy(req.params.id);
     return reply.code(200).send({ status: 'stopped' });
   });
+
+  // POST /v1/sessions/:id/actions
+  app.post('/sessions/:id/actions', async (req, reply) => {
+    const s = app.sessionManager.get(req.params.id);
+    if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    if (s.status === 'stopping' || s.status === 'stopped' || s.status === 'dead') {
+      return reply.code(409).send({ error_code: 'SESSION_STOPPING', status: s.status });
+    }
+    if (s.status !== 'ready') {
+      return reply.code(409).send({ error_code: 'NOT_READY', status: s.status });
+    }
+    const { tool, params } = req.body || {};
+    if (!tool) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'tool required' });
+    try {
+      const result = await app.actionProxy.execute(s, tool, params, req.id);
+      return result.result ?? result;
+    } catch (e) {
+      return mapProxyError(reply, e);
+    }
+  });
+
+  // POST /v1/sessions/:id/actions/batch
+  app.post('/sessions/:id/actions/batch', async (req, reply) => {
+    const s = app.sessionManager.get(req.params.id);
+    if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    if (s.status !== 'ready') {
+      return reply.code(409).send({ error_code: 'NOT_READY', status: s.status });
+    }
+    const { actions, stop_on_error = true, timeout_ms = 60000 } = req.body || {};
+    if (!Array.isArray(actions)) {
+      return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'actions must be an array' });
+    }
+    try {
+      const out = await app.actionProxy.executeBatch(s, actions, {
+        stopOnError: stop_on_error,
+        timeoutMs: timeout_ms,
+      });
+      return out;
+    } catch (e) {
+      return mapProxyError(reply, e);
+    }
+  });
+
+  // GET /v1/sessions/:id/logs?since=<cursor>
+  app.get('/sessions/:id/logs', async (req, reply) => {
+    const s = app.sessionManager.get(req.params.id);
+    if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    const since = req.query.since ?? 0;
+    const { lines, cursor } = s.logBuffer.since(since);
+    return { lines, cursor: String(cursor) };
+  });
 }
 
 function sessionToResponse(s) {
@@ -78,4 +129,15 @@ function sessionToResponse(s) {
     out.stderr_tail = s.stderrTail;
   }
   return out;
+}
+
+function mapProxyError(reply, e) {
+  if (e.code === 'UNKNOWN_TOOL') return reply.code(400).send({ error_code: 'UNKNOWN_TOOL', tool: e.message });
+  if (e.code === 'INVALID_PARAMS') return reply.code(400).send({ error_code: 'INVALID_PARAMS', details: e.details });
+  if (e.code === 'BATCH_TOO_LARGE') return reply.code(400).send({ error_code: 'BATCH_TOO_LARGE', max: e.max });
+  if (e.code === 'QUEUE_FULL') return reply.code(429).send({ error_code: 'QUEUE_FULL' });
+  if (e.code === 'QUEUE_TIMEOUT') return reply.code(504).send({ error_code: 'QUEUE_TIMEOUT' });
+  if (e.code === 'UPSTREAM_DOWN') return reply.code(502).send({ error_code: 'UPSTREAM_DOWN' });
+  if (e.code === 'UPSTREAM_TIMEOUT') return reply.code(504).send({ error_code: 'UPSTREAM_TIMEOUT' });
+  return reply.code(500).send({ error_code: 'INTERNAL', error: e.message });
 }
