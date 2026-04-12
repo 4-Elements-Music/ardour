@@ -3,7 +3,7 @@ import { mkdir, writeFile, readdir, stat, rm } from 'fs/promises';
 import { resolve, join } from 'path';
 import { config } from '../config.js';
 
-function buildArdourEnv() {
+export function buildArdourEnv() {
   const TOP = config.ardourRoot;
   const libs = join(TOP, 'build/libs');
 

@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
 import PQueue from 'p-queue';
 import { LogBuffer } from './log-buffer.js';
+import { buildArdourEnv } from './executor.js';
 
 /**
  * SessionManager — spawns luasession with mcp_host.lua, tracks sessions,
@@ -85,9 +86,9 @@ export class SessionManager {
 
     this._sessions.set(id, session);
 
-    // Spawn the process
+    // Spawn the process with full Ardour env (ARDOUR_DLL_PATH, DYLD_FALLBACK_LIBRARY_PATH, etc.)
     const env = {
-      ...process.env,
+      ...buildArdourEnv(),
       MCP_HTTP_PORT: String(port),
     };
     const args = [
