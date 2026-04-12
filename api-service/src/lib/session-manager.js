@@ -120,11 +120,6 @@ export class SessionManager {
       bin = this._config.ardourGuiBin;
       const sessionFile = join(ardourSessionDir, `${name}.ardour`);
       args = ['-n', sessionFile];
-      // Skip expensive scans for dev mode — AU/VST/VST3/LV2 discovery can take 30+ minutes
-      env.VST_PATH = '/nonexistent';
-      env.LXVST_PATH = '/nonexistent';
-      env.VST3_PATH = '/nonexistent';
-      env.LV2_PATH = '/nonexistent';
       session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')}`);
     } else {
       // Headless mode: arlua with mcp_host.lua script
