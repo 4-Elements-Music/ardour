@@ -121,24 +121,12 @@ export class SessionManager {
       const sessionFile = join(ardourSessionDir, `${name}.ardour`);
       args = ['-n', sessionFile];
 
-      // GUI env: include the paths Ardour REQUIRES to run (DLL/DATA/CONFIG, fonts, misc)
-      // but OMIT the ones that trigger "config changed" prompts and plugin rescans
-      // (ARDOUR_BACKEND_PATH, ARDOUR_SURFACES_PATH, ARDOUR_PANNER_PATH).
-      // Ardour will use its own persistent config for backend/surface/panner selection.
+      // GUI env: include all ARDOUR_* paths Ardour needs to run.
+      // Keep full env for GUI mode — the earlier theory about these causing
+      // "config changed" was wrong; the hang is from plugin scan on a specific
+      // AU plugin, which is tracked in TODO.md.
       const guiEnv = {
-        ...process.env,
-        ARDOUR_DLL_PATH: env.ARDOUR_DLL_PATH,
-        ARDOUR_DATA_PATH: env.ARDOUR_DATA_PATH,
-        ARDOUR_CONFIG_PATH: env.ARDOUR_CONFIG_PATH,
-        ARDOUR_EXPORT_FORMATS_PATH: env.ARDOUR_EXPORT_FORMATS_PATH,
-        ARDOUR_THEMES_PATH: env.ARDOUR_THEMES_PATH,
-        ARDOUR_MIDIMAPS_PATH: env.ARDOUR_MIDIMAPS_PATH,
-        ARDOUR_MIDI_PATCH_PATH: env.ARDOUR_MIDI_PATCH_PATH,
-        GTK_PATH: env.GTK_PATH,
-        GTK2_RC_FILES: env.GTK2_RC_FILES,
-        VAMP_PATH: env.VAMP_PATH,
-        DYLD_FALLBACK_LIBRARY_PATH: env.DYLD_FALLBACK_LIBRARY_PATH,
-        LD_LIBRARY_PATH: env.LD_LIBRARY_PATH,
+        ...env,
         MCP_HTTP_PORT: String(port),
       };
       // Replace env for the GUI spawn
