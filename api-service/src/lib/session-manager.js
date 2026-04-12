@@ -131,7 +131,14 @@ export class SessionManager {
               try {
                 const sessionFile = join(ardourSessionDir, `${name}.ardour`);
                 session.logBuffer.append(`Launching GUI: ${this._config.ardourGuiBin} ${sessionFile}`);
-                const gui = this._spawner(this._config.ardourGuiBin, ['-d', '-n', sessionFile], { env, detached: true });
+                // Skip expensive AU/VST3 scans for dev mode
+                const guiEnv = {
+                  ...env,
+                  VST_PATH: '/nonexistent',
+                  LXVST_PATH: '/nonexistent',
+                  VST3_PATH: '/nonexistent',
+                };
+                const gui = this._spawner(this._config.ardourGuiBin, ['-d', '-n', sessionFile], { env: guiEnv, detached: true });
                 session._guiChild = gui;
                 if (gui.stdout) gui.stdout.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
                 if (gui.stderr) gui.stderr.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
