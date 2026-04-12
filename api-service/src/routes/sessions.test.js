@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { sessionRoutes } from './sessions.js';
+import FormData from 'form-data';
+import fastifyMultipart from '@fastify/multipart';
 
 function fakeSessionManager() {
   const sessions = new Map();
@@ -121,6 +123,79 @@ describe('DELETE /v1/sessions/:id', () => {
     await app.ready();
     const res = await app.inject({ method: 'DELETE', url: `/v1/sessions/${r.session_id}` });
     assert.equal(res.statusCode, 200);
+    await app.close();
+  });
+});
+
+describe('POST /v1/sessions/:id/upload', () => {
+  async function buildUploadApp(sm, overrides = {}) {
+    const app = Fastify({ logger: false });
+    app.decorate('sessionManager', sm);
+    app.decorate('actionProxy', null);
+    app.decorate('exportService', null);
+    app.decorate('config', {
+      maxConcurrentSessions: 5,
+      maxUploadBytes: 1024 * 1024,
+      maxSessionUploadBytes: 5 * 1024 * 1024,
+      ...overrides,
+    });
+    await app.register(fastifyMultipart);
+    app.register(sessionRoutes, { prefix: '/v1' });
+    return app;
+  }
+
+  it('rejects filename with path separator', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const sm = fakeSessionManager();
+    const r = await sm.create({ sessionName: 'x' });
+    const s = sm.get(r.session_id);
+    s.status = 'ready';
+    s.sessionDir = mkdtempSync(join(tmpdir(), 'up-'));
+    s.uploadBytesUsed = 0;
+
+    const app = await buildUploadApp(sm);
+    await app.ready();
+
+    const form = new FormData();
+    form.append('file', Buffer.from('hi'), { filename: '../etc/passwd', contentType: 'application/octet-stream' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${r.session_id}/upload`,
+      payload: form,
+      headers: form.getHeaders(),
+    });
+    assert.equal(res.statusCode, 400);
+    await app.close();
+  });
+
+  it('accepts valid upload', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const sm = fakeSessionManager();
+    const r = await sm.create({ sessionName: 'x' });
+    const s = sm.get(r.session_id);
+    s.status = 'ready';
+    s.sessionDir = mkdtempSync(join(tmpdir(), 'up-'));
+    s.uploadBytesUsed = 0;
+
+    const app = await buildUploadApp(sm);
+    await app.ready();
+
+    const form = new FormData();
+    form.append('file', Buffer.from('fake wav data'), { filename: 'kick.wav', contentType: 'audio/wav' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${r.session_id}/upload`,
+      payload: form,
+      headers: form.getHeaders(),
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.filename, 'kick.wav');
+    assert.equal(body.size, 13);
     await app.close();
   });
 });

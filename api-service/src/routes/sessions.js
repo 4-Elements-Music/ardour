@@ -112,6 +112,66 @@ export async function sessionRoutes(app) {
     const { lines, cursor } = s.logBuffer.since(since);
     return { lines, cursor: String(cursor) };
   });
+
+  // POST /v1/sessions/:id/upload
+  app.post('/sessions/:id/upload', async (req, reply) => {
+    const s = app.sessionManager.get(req.params.id);
+    if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    if (s.status === 'stopping' || s.status === 'stopped' || s.status === 'dead') {
+      return reply.code(409).send({ error_code: 'SESSION_STOPPING', status: s.status });
+    }
+
+    const data = await req.file();
+    if (!data) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'file required' });
+
+    const rawName = data.filename || 'upload.bin';
+    const sanitized = sanitizeUploadFilename(rawName);
+    if (!sanitized) {
+      return reply.code(400).send({ error_code: 'INVALID_FILENAME', error: 'filename contains path separators or is hidden' });
+    }
+    const allowedExts = /\.(wav|flac|aiff|ogg|mp3|mid|midi|sf2|sfz)$/i;
+    if (!allowedExts.test(sanitized)) {
+      return reply.code(400).send({ error_code: 'INVALID_FILE_TYPE', error: 'extension not allowed' });
+    }
+
+    const { mkdir, stat, writeFile } = await import('fs/promises');
+    const { resolve: resolvePath, relative } = await import('path');
+    const uploadsDir = resolvePath(s.sessionDir, 'uploads');
+    await mkdir(uploadsDir, { recursive: true });
+    const destPath = resolvePath(uploadsDir, sanitized);
+    // Re-verify path is within uploadsDir
+    const rel = relative(uploadsDir, destPath);
+    if (rel.startsWith('..') || rel.includes('/')) {
+      return reply.code(400).send({ error_code: 'INVALID_FILENAME' });
+    }
+    try {
+      await stat(destPath);
+      return reply.code(409).send({ error_code: 'FILE_EXISTS', filename: sanitized });
+    } catch {}
+
+    // Read the stream with size check
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of data.file) {
+      size += chunk.length;
+      if (size > app.config.maxUploadBytes) {
+        return reply.code(413).send({ error_code: 'FILE_TOO_LARGE', max: app.config.maxUploadBytes });
+      }
+      if (s.uploadBytesUsed + size > app.config.maxSessionUploadBytes) {
+        return reply.code(413).send({ error_code: 'SESSION_UPLOAD_QUOTA', max: app.config.maxSessionUploadBytes });
+      }
+      chunks.push(chunk);
+    }
+    const buf = Buffer.concat(chunks);
+    await writeFile(destPath, buf);
+    s.uploadBytesUsed += size;
+
+    return reply.code(200).send({
+      path: destPath,
+      filename: sanitized,
+      size,
+    });
+  });
 }
 
 function sessionToResponse(s) {
@@ -140,4 +200,12 @@ function mapProxyError(reply, e) {
   if (e.code === 'UPSTREAM_DOWN') return reply.code(502).send({ error_code: 'UPSTREAM_DOWN' });
   if (e.code === 'UPSTREAM_TIMEOUT') return reply.code(504).send({ error_code: 'UPSTREAM_TIMEOUT' });
   return reply.code(500).send({ error_code: 'INTERNAL', error: e.message });
+}
+
+function sanitizeUploadFilename(name) {
+  if (!name) return null;
+  if (name.startsWith('.')) return null;
+  const basename = String(name).replace(/[\/\\]/g, '_').replace(/\0/g, '');
+  if (basename.length > 255) return null;
+  return basename;
 }
