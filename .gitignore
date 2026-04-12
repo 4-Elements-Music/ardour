@@ -154,3 +154,6 @@ tags
 
 # misc custom files git should ignore
 /local
+
+# audio-validator sidecar build artifact
+/tools/audio-validator/audio-validator
