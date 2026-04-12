@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Ardour Session Manager Dev Tool</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="top-bar">
+    <span id="session-indicator">● No session</span>
+    <button id="btn-play">Play</button>
+    <button id="btn-stop">Stop</button>
+    <button id="btn-save">Save</button>
+    <label><input type="checkbox" id="gui-mode"> GUI mode</label>
+  </div>
+  <div id="main">
+    <div id="left-panel">
+      <h3>Sessions</h3>
+      <div id="new-session">
+        <label>Name: <input id="new-name" value="mix"></label>
+        <label>SR: <select id="new-sr"><option>48000</option><option>44100</option></select></label>
+        <label>BPM: <input id="new-bpm" type="number" value="120"></label>
+        <button id="btn-new-session">New Session</button>
+      </div>
+      <ul id="session-list"></ul>
+    </div>
+    <div id="center-panel">
+      <h3>Actions</h3>
+      <select id="tool-select"><option>Loading…</option></select>
+      <div id="param-form"></div>
+      <button id="btn-send">Send</button>
+    </div>
+    <div id="right-panel">
+      <h3>Response Log</h3>
+      <button id="btn-clear-log">Clear</button>
+      <div id="log"></div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
