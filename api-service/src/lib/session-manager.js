@@ -120,7 +120,18 @@ export class SessionManager {
       bin = this._config.ardourGuiBin;
       const sessionFile = join(ardourSessionDir, `${name}.ardour`);
       args = ['-n', sessionFile];
-      session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')}`);
+
+      // Use MINIMAL env for GUI: only the DYLD path so dynamic libraries resolve,
+      // plus MCP_HTTP_PORT. No ARDOUR_* overrides — they trigger "config changed"
+      // dialogs and plugin rescans. Let Ardour use its own persistent config.
+      const guiEnv = {
+        ...process.env,
+        DYLD_FALLBACK_LIBRARY_PATH: env.DYLD_FALLBACK_LIBRARY_PATH,
+        MCP_HTTP_PORT: String(port),
+      };
+      // Replace env for the GUI spawn
+      session._guiEnv = guiEnv;
+      session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')} (minimal env)`);
     } else {
       // Headless mode: arlua with mcp_host.lua script
       bin = this._config.luasessionBin;
@@ -136,7 +147,8 @@ export class SessionManager {
     }
 
     try {
-      const child = this._spawner(bin, args, { env, cwd: sessionDir });
+      const spawnEnv = session._guiEnv || env;
+      const child = this._spawner(bin, args, { env: spawnEnv, cwd: sessionDir });
       session.child = child;
       session.pid = child.pid;
 
