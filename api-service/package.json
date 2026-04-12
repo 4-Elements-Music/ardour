@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test --test-force-exit src/**/*.test.js"
+    "test": "node --test --test-force-exit src/**/*.test.js",
+    "extract-tools": "node scripts/extract-tools.js"
   },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
