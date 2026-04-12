@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
+import { spawnSync } from 'child_process';
 import PQueue from 'p-queue';
 import { LogBuffer } from './log-buffer.js';
 import { buildArdourEnv } from './executor.js';
@@ -97,15 +98,33 @@ export class SessionManager {
 
     let bin, args;
     if (session.gui) {
-      // GUI mode: launch Ardour GUI with --new to create a new session
-      // MCP HTTP is activated via Preferences/config (active="1" in ~/Library/Preferences/Ardour9/config)
-      // and uses MCP_HTTP_PORT env var for the port
+      // GUI mode: create session headlessly with luasession, THEN launch GUI on the saved file.
+      // (Running both concurrently conflicts; luasession exits before GUI starts.)
+      session.logBuffer.append(`[gui] Pre-creating session with luasession...`);
+      const pre = spawnSync(
+        this._config.luasessionBin,
+        [
+          this._config.createSessionLua,
+          ardourSessionDir, name,
+          String(sampleRate), String(tempo),
+          String(timeSignature.numerator), String(timeSignature.denominator),
+        ],
+        { env, timeout: 30000 }
+      );
+      session.logBuffer.append(`[gui] pre-create stdout: ${(pre.stdout || '').toString().slice(-500)}`);
+      session.logBuffer.append(`[gui] pre-create stderr: ${(pre.stderr || '').toString().slice(-500)}`);
+      if (pre.status !== 0) {
+        session.logBuffer.append(`[gui] pre-create failed with code ${pre.status}, falling back to GUI --new`);
+      }
+
       bin = this._config.ardourGuiBin;
-      args = ['-n', '-N', name, ardourSessionDir];
+      const sessionFile = join(ardourSessionDir, `${name}.ardour`);
+      args = ['-n', sessionFile];
       // Skip expensive VST/VST3 scans for dev mode
       env.VST_PATH = '/nonexistent';
       env.LXVST_PATH = '/nonexistent';
       env.VST3_PATH = '/nonexistent';
+      session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')}`);
     } else {
       // Headless mode: arlua with mcp_host.lua script
       bin = this._config.luasessionBin;

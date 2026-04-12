@@ -32,6 +32,7 @@ export const config = {
   luasessionBin: resolve(ARDOUR_ROOT, 'build/luasession/luasession'),
   ardourGuiBin: process.env.ARDOUR_GUI_BIN || resolve(ARDOUR_ROOT, 'build/gtk2_ardour/ardour-9.2.326'),
   mcpHostLua: resolve(ARDOUR_ROOT, 'api-service/lua/mcp_host.lua'),
+  createSessionLua: resolve(ARDOUR_ROOT, 'api-service/lua/create_session.lua'),
   sessionsDir: process.env.SESSIONS_DIR || '/tmp/ardour-sessions',
   maxUploadBytes: parseInt(process.env.MAX_UPLOAD_BYTES || '104857600', 10),
   actionQueueDepth: parseInt(process.env.ACTION_QUEUE_DEPTH || '20', 10),
