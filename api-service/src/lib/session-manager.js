@@ -54,8 +54,11 @@ export class SessionManager {
       throw err;
     }
 
+    // Node.js owns `sessionDir` (for PID, uploads, exports); Ardour creates
+    // its session inside `sessionDir/data/` (create_session fails if dir exists).
     const sessionDir = resolve(this._config.sessionsDir, id);
     mkdirSync(sessionDir, { recursive: true });
+    const ardourSessionDir = join(sessionDir, 'data');
 
     const session = {
       id,
@@ -93,7 +96,7 @@ export class SessionManager {
     };
     const args = [
       this._config.mcpHostLua,
-      sessionDir,
+      ardourSessionDir,
       name,
       String(sampleRate),
       String(tempo),
