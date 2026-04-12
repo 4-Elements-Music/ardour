@@ -21,7 +21,7 @@ export const config = {
   maxJobSpecBytes: parseInt(process.env.MAX_JOB_SPEC_BYTES || '1048576', 10),
 
   // Sessions
-  allowGui: process.env.ALLOW_GUI === 'true',
+  allowGui: process.env.ALLOW_GUI !== 'false',  // default true; set ALLOW_GUI=false in production
   maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '5', 10),
   sessionIdleTimeoutMs: parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || '1800000', 10),
   sessionStartupTimeoutMs: parseInt(process.env.SESSION_STARTUP_TIMEOUT_MS || '30000', 10),
