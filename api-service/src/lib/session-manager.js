@@ -94,20 +94,30 @@ export class SessionManager {
       ...buildArdourEnv(),
       MCP_HTTP_PORT: String(port),
     };
-    const bin = this._config.luasessionBin;
-    const args = [
-      this._config.mcpHostLua,
-      ardourSessionDir,
-      name,
-      String(sampleRate),
-      String(tempo),
-      String(timeSignature.numerator),
-      String(timeSignature.denominator),
-    ];
+
+    let bin, args;
     if (session.gui) {
-      // GUI mode: after session is ready, launch Ardour GUI pointed at the session dir
-      // (see below, after spawn)
-      session._launchGuiAfterReady = true;
+      // GUI mode: launch Ardour GUI with --new to create a new session
+      // MCP HTTP is activated via Preferences/config (active="1" in ~/Library/Preferences/Ardour9/config)
+      // and uses MCP_HTTP_PORT env var for the port
+      bin = this._config.ardourGuiBin;
+      args = ['-n', '-N', name, ardourSessionDir];
+      // Skip expensive VST/VST3 scans for dev mode
+      env.VST_PATH = '/nonexistent';
+      env.LXVST_PATH = '/nonexistent';
+      env.VST3_PATH = '/nonexistent';
+    } else {
+      // Headless mode: arlua with mcp_host.lua script
+      bin = this._config.luasessionBin;
+      args = [
+        this._config.mcpHostLua,
+        ardourSessionDir,
+        name,
+        String(sampleRate),
+        String(tempo),
+        String(timeSignature.numerator),
+        String(timeSignature.denominator),
+      ];
     }
 
     try {
@@ -125,27 +135,6 @@ export class SessionManager {
           session.logBuffer.append(text);
           if (text.includes('MCP_HTTP_READY') && session.status === 'starting') {
             session.status = 'ready';
-            // If GUI was requested, launch Ardour GUI as a separate process
-            // pointed at the session that was just created
-            if (session._launchGuiAfterReady) {
-              try {
-                const sessionFile = join(ardourSessionDir, `${name}.ardour`);
-                session.logBuffer.append(`Launching GUI: ${this._config.ardourGuiBin} ${sessionFile}`);
-                // Skip expensive AU/VST3 scans for dev mode
-                const guiEnv = {
-                  ...env,
-                  VST_PATH: '/nonexistent',
-                  LXVST_PATH: '/nonexistent',
-                  VST3_PATH: '/nonexistent',
-                };
-                const gui = this._spawner(this._config.ardourGuiBin, ['-d', '-n', sessionFile], { env: guiEnv, detached: true });
-                session._guiChild = gui;
-                if (gui.stdout) gui.stdout.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
-                if (gui.stderr) gui.stderr.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
-              } catch (e) {
-                session.logBuffer.append(`GUI launch failed: ${e.message}`);
-              }
-            }
           }
         });
       }
@@ -184,6 +173,11 @@ export class SessionManager {
         }
         session.status = 'dead';
       });
+
+      // For GUI mode, poll the MCP HTTP port since there's no READY marker
+      if (session.gui) {
+        this._pollForReady(session);
+      }
     } catch (e) {
       this._portPool.release(port);
       this._sessions.delete(id);
@@ -191,6 +185,32 @@ export class SessionManager {
     }
 
     return { session_id: id, status: 'starting' };
+  }
+
+  async _pollForReady(session) {
+    const startupTimeout = this._config.sessionStartupTimeoutMs || 60000;
+    const deadline = Date.now() + startupTimeout;
+    const pollInterval = 1000;
+    while (Date.now() < deadline) {
+      if (session.status !== 'starting') return; // crashed or destroyed
+      try {
+        const res = await this._httpClient(session.mcpBaseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 }),
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          session.status = 'ready';
+          session.logBuffer.append('MCP HTTP is responding — session ready');
+          return;
+        }
+      } catch {
+        // Not ready yet
+      }
+      await new Promise(r => setTimeout(r, pollInterval));
+    }
+    session.logBuffer.append(`Startup timeout: MCP HTTP not responding on port ${session.port} after ${startupTimeout}ms`);
   }
 
   get(id) {
