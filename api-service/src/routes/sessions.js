@@ -48,7 +48,9 @@ export async function sessionRoutes(app) {
   app.get('/sessions/:id', async (req, reply) => {
     const s = app.sessionManager.get(req.params.id);
     if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
-    return sessionToResponse(s);
+    const out = sessionToResponse(s);
+    out.uploads = app.sessionManager.getUploads(s.id);
+    return out;
   });
 
   // DELETE /v1/sessions/:id
@@ -166,10 +168,13 @@ export async function sessionRoutes(app) {
     await writeFile(destPath, buf);
     s.uploadBytesUsed += size;
 
+    const uploadId = app.sessionManager.registerUpload(req.params.id, sanitized, size, destPath);
     return reply.code(200).send({
-      path: destPath,
+      upload_id: uploadId,
       filename: sanitized,
+      bytes: size,
       size,
+      path: destPath,
     });
   });
 }

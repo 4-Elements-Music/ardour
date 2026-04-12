@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
@@ -86,6 +86,7 @@ export class SessionManager {
       analyses: new Map(),
       uploadBytesUsed: 0,
       exportBytesUsed: 0,
+      uploads: new Map(),
     };
 
     this._sessions.set(id, session);
@@ -275,6 +276,30 @@ export class SessionManager {
         finish();
       }
     });
+  }
+
+  registerUpload(sessionId, filename, bytes, path) {
+    const s = this._sessions.get(sessionId);
+    if (!s) return null;
+    const id = 'upl_' + randomBytes(8).toString('hex');
+    s.uploads.set(id, { filename, bytes, path, createdAt: this._now() });
+    return id;
+  }
+
+  getUploadPath(sessionId, uploadId) {
+    const s = this._sessions.get(sessionId);
+    return s?.uploads.get(uploadId)?.path || null;
+  }
+
+  getUploads(sessionId) {
+    const s = this._sessions.get(sessionId);
+    if (!s) return [];
+    return [...s.uploads.entries()].map(([id, u]) => ({
+      upload_id: id,
+      filename: u.filename,
+      bytes: u.bytes,
+      created_at: new Date(u.createdAt).toISOString(),
+    }));
   }
 
   _sanitizeSessionName(name) {
