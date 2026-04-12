@@ -34,9 +34,16 @@ async function refreshSessions() {
     li.textContent = `${s.session_name} [${s.status}]`;
     if (s.session_id === state.sessionId) li.classList.add('active');
     li.onclick = () => { state.sessionId = s.session_id; updateIndicator(); refreshSessions(); };
+    const logBtn = document.createElement('button');
+    logBtn.textContent = 'log';
+    logBtn.style.marginLeft = '4px';
+    logBtn.onclick = async (e) => {
+      e.stopPropagation();
+      await viewSessionLog(s.session_id);
+    };
     const del = document.createElement('button');
     del.textContent = 'x';
-    del.style.marginLeft = '8px';
+    del.style.marginLeft = '4px';
     del.onclick = async (e) => {
       e.stopPropagation();
       await api('DELETE', `/v1/sessions/${s.session_id}`);
@@ -44,9 +51,46 @@ async function refreshSessions() {
       refreshSessions();
       updateIndicator();
     };
+    li.appendChild(logBtn);
     li.appendChild(del);
     ul.appendChild(li);
   }
+}
+
+async function viewSessionLog(sessionId) {
+  // Fetch session details (for stderr_tail on dead sessions) and ring buffer logs
+  const [detailRes, logRes] = await Promise.all([
+    fetch(`/v1/sessions/${sessionId}`).then(r => r.json()).catch(() => null),
+    fetch(`/v1/sessions/${sessionId}/logs`).then(r => r.json()).catch(() => null),
+  ]);
+
+  const parts = [];
+  parts.push(`=== SESSION ${sessionId} ===`);
+  if (detailRes) {
+    parts.push(`status: ${detailRes.status}`);
+    if (detailRes.exit_code != null) parts.push(`exit_code: ${detailRes.exit_code}`);
+    if (detailRes.stderr_tail?.length) {
+      parts.push('\n=== STDERR TAIL ===');
+      parts.push(...detailRes.stderr_tail);
+    }
+  }
+  if (logRes && logRes.lines?.length) {
+    parts.push('\n=== LOG BUFFER ===');
+    for (const line of logRes.lines) parts.push(`[${line.seq}] ${line.text}`);
+  } else {
+    parts.push('\n=== LOG BUFFER ===');
+    parts.push('(empty)');
+  }
+
+  const text = parts.join('\n');
+  logEntry(`Session log ${sessionId.slice(0, 8)}`, { log: text }, true);
+
+  // Also render the raw log as a big pre for easy copying
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.style.borderLeftColor = '#ff0';
+  el.innerHTML = `<strong>Full log (copyable):</strong><pre style="max-height:400px;overflow:auto;">${escapeHtml(text)}</pre>`;
+  document.getElementById('log').prepend(el);
 }
 
 function updateIndicator() {
