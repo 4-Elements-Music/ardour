@@ -30,7 +30,7 @@ export const config = {
   mcpPortRangeStart: parseInt(process.env.MCP_PORT_RANGE_START || '4821', 10),
   mcpPortRangeEnd: parseInt(process.env.MCP_PORT_RANGE_END || '4920', 10),
   luasessionBin: resolve(ARDOUR_ROOT, 'build/luasession/luasession'),
-  ardourGuiBin: process.env.ARDOUR_GUI_BIN || 'ardour8',
+  ardourGuiBin: process.env.ARDOUR_GUI_BIN || resolve(ARDOUR_ROOT, 'build/gtk2_ardour/ardour-9.2.326'),
   mcpHostLua: resolve(ARDOUR_ROOT, 'api-service/lua/mcp_host.lua'),
   sessionsDir: process.env.SESSIONS_DIR || '/tmp/ardour-sessions',
   maxUploadBytes: parseInt(process.env.MAX_UPLOAD_BYTES || '104857600', 10),

@@ -94,6 +94,7 @@ export class SessionManager {
       ...buildArdourEnv(),
       MCP_HTTP_PORT: String(port),
     };
+    const bin = this._config.luasessionBin;
     const args = [
       this._config.mcpHostLua,
       ardourSessionDir,
@@ -103,7 +104,11 @@ export class SessionManager {
       String(timeSignature.numerator),
       String(timeSignature.denominator),
     ];
-    const bin = session.gui ? this._config.ardourGuiBin : this._config.luasessionBin;
+    if (session.gui) {
+      // GUI mode: after session is ready, launch Ardour GUI pointed at the session dir
+      // (see below, after spawn)
+      session._launchGuiAfterReady = true;
+    }
 
     try {
       const child = this._spawner(bin, args, { env, cwd: sessionDir });
@@ -120,6 +125,20 @@ export class SessionManager {
           session.logBuffer.append(text);
           if (text.includes('MCP_HTTP_READY') && session.status === 'starting') {
             session.status = 'ready';
+            // If GUI was requested, launch Ardour GUI as a separate process
+            // pointed at the session that was just created
+            if (session._launchGuiAfterReady) {
+              try {
+                const sessionFile = join(ardourSessionDir, `${name}.ardour`);
+                session.logBuffer.append(`Launching GUI: ${this._config.ardourGuiBin} ${sessionFile}`);
+                const gui = this._spawner(this._config.ardourGuiBin, [sessionFile], { env, detached: true });
+                session._guiChild = gui;
+                if (gui.stdout) gui.stdout.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
+                if (gui.stderr) gui.stderr.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
+              } catch (e) {
+                session.logBuffer.append(`GUI launch failed: ${e.message}`);
+              }
+            }
           }
         });
       }
