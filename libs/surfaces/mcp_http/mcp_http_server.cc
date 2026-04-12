@@ -76,6 +76,10 @@
 #include "ardour/tempo.h"
 #include "ardour/track.h"
 
+#include "ardour/luabindings.h"
+#include "lua/luastate.h"
+#include "LuaBridge/LuaBridge.h"
+
 #include "mcp_http_server.h"
 
 namespace pt = boost::property_tree;
@@ -7968,6 +7972,154 @@ dispatch_midi_region_tool_call (ARDOUR::Session& session, const std::string& too
 	return false;
 }
 
+/* ============================================================
+ *  session/lua_eval  — sandboxed Lua execution in session context
+ * ============================================================ */
+
+struct LuaEvalContext
+{
+	std::string output;
+	size_t      output_limit;
+	int64_t     deadline_us;
+	bool        timed_out;
+};
+
+static int
+lua_eval_print (lua_State* L)
+{
+	LuaEvalContext* ctx = (LuaEvalContext*)lua_touserdata (L, lua_upvalueindex (1));
+	if (!ctx) {
+		return 0;
+	}
+	int n = lua_gettop (L);
+	for (int i = 1; i <= n; i++) {
+		if (i > 1) {
+			if (ctx->output.size () < ctx->output_limit) {
+				ctx->output += "\t";
+			}
+		}
+		size_t      l;
+		const char* s = luaL_tolstring (L, i, &l);
+		if (s) {
+			if (ctx->output.size () + l < ctx->output_limit) {
+				ctx->output += s;
+			}
+		}
+		lua_pop (L, 1);
+	}
+	if (ctx->output.size () < ctx->output_limit) {
+		ctx->output += "\n";
+	}
+	return 0;
+}
+
+static void
+lua_eval_debug_hook (lua_State* L, lua_Debug*)
+{
+	lua_getfield (L, LUA_REGISTRYINDEX, "_mcp_eval_ctx");
+	LuaEvalContext* ctx = (LuaEvalContext*)lua_touserdata (L, -1);
+	lua_pop (L, 1);
+	if (ctx && g_get_monotonic_time () > ctx->deadline_us) {
+		ctx->timed_out = true;
+		luaL_error (L, "execution timed out");
+	}
+}
+
+static std::string
+handle_lua_eval_tool (ARDOUR::Session& session, PBD::EventLoop* event_loop, const pt::ptree& root, const std::string& id)
+{
+	std::string code = root.get<std::string> ("params.arguments.code", "");
+	if (code.empty ()) {
+		return jsonrpc_error (id, -32602, "Missing required parameter: code");
+	}
+	if (code.size () > 65536) {
+		return jsonrpc_error (id, -32602, "Code exceeds maximum length (65536 bytes)");
+	}
+
+	LuaEvalContext ctx;
+	ctx.output_limit = 65536;
+	ctx.deadline_us  = g_get_monotonic_time () + 30 * 1000000;
+	ctx.timed_out    = false;
+
+	bool        lua_error = false;
+	std::string error_msg;
+
+	auto eval_fn = [&]() {
+		/* Sandboxed Lua state: strips io, os, loadfile, dofile, require, package, debug, rawget, rawset, coroutine, module */
+		LuaState lua (true, true);
+		lua_State* L = lua.getState ();
+
+		/* Register Ardour bindings */
+		ARDOUR::LuaBindings::stddef (L);
+		ARDOUR::LuaBindings::common (L);
+		ARDOUR::LuaBindings::non_rt (L);
+		ARDOUR::LuaBindings::set_session (L, &session);
+
+		/* Push Session as global */
+		luabridge::push<ARDOUR::Session*> (L, &session);
+		lua_setglobal (L, "Session");
+
+		/* Override print to capture output */
+		lua_pushlightuserdata (L, &ctx);
+		lua_pushcclosure (L, lua_eval_print, 1);
+		lua_setglobal (L, "print");
+
+		/* Store context in registry for the debug hook */
+		lua_pushlightuserdata (L, &ctx);
+		lua_setfield (L, LUA_REGISTRYINDEX, "_mcp_eval_ctx");
+
+		/* Set debug hook for timeout — check every 100000 instructions */
+		lua_sethook (L, lua_eval_debug_hook, LUA_MASKCOUNT, 100000);
+
+		/* Execute */
+		if (luaL_dostring (L, code.c_str ())) {
+			lua_error = true;
+			const char* err = lua_tostring (L, -1);
+			error_msg = err ? err : "unknown Lua error";
+		}
+	};
+
+	if (event_loop) {
+		/* Dispatch to main thread and wait for completion (thread safety) */
+		std::mutex              m;
+		std::condition_variable cv;
+		bool                    done = false;
+
+		const bool queued = event_loop->call_slot (MISSING_INVALIDATOR, [&]() {
+			eval_fn ();
+			{
+				std::lock_guard<std::mutex> lk (m);
+				done = true;
+			}
+			cv.notify_one ();
+		});
+
+		if (queued) {
+			std::unique_lock<std::mutex> lk (m);
+			cv.wait (lk, [&] { return done; });
+		} else {
+			eval_fn ();
+		}
+	} else {
+		eval_fn ();
+	}
+
+	std::string escaped_output = json_escape (ctx.output);
+	if (lua_error) {
+		std::string escaped_error = json_escape (error_msg);
+		return jsonrpc_result (
+		    id,
+		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"success\\\":false,\\\"error\\\":\\\"")
+		        + escaped_error
+		        + "\\\",\\\"output\\\":\\\"" + escaped_output + "\\\"}\"}]}");
+	}
+
+	return jsonrpc_result (
+	    id,
+	    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"success\\\":true,\\\"output\\\":\\\"")
+	        + escaped_output + "\\\"}\"}]}");
+}
+
 std::string
 MCPHttpServer::dispatch_jsonrpc (const std::string& payload) const
 {
@@ -8044,6 +8196,10 @@ MCPHttpServer::dispatch_jsonrpc (const std::string& payload) const
 			return jsonrpc_result (
 			    id,
 			    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"") + json_escape (text) + "\"}]}");
+		}
+
+		if (tool_name == "session/lua_eval") {
+			return handle_lua_eval_tool (_session, _event_loop, root, id);
 		}
 
 		std::string track_tool_response;

@@ -2706,6 +2706,23 @@ R"mcp(
         },
         "additionalProperties": true
       }
+    },
+    {
+      "name": "session/lua_eval",
+      "title": "Execute Lua Script",
+      "description": "Execute sandboxed Lua code in the session context. Has access to ARDOUR.*, Session, Temporal.*, PBD.*, and Evoral.* bindings. Standard library io, os, loadfile, dofile, require, package, debug are stripped for security. Print output is captured and returned. Execution timeout: 30 seconds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Lua source code to execute. Max 65536 bytes.",
+            "maxLength": 65536
+          }
+        },
+        "required": ["code"],
+        "additionalProperties": false
+      }
     }
   ]
 }
