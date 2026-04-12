@@ -98,40 +98,14 @@ export class SessionManager {
 
     let bin, args;
     if (session.gui) {
-      // GUI mode: create session headlessly with luasession, THEN launch GUI on the saved file.
-      // (Running both concurrently conflicts; luasession exits before GUI starts.)
-      session.logBuffer.append(`[gui] Pre-creating session with luasession...`);
-      const pre = spawnSync(
-        this._config.luasessionBin,
-        [
-          this._config.createSessionLua,
-          ardourSessionDir, name,
-          String(sampleRate), String(tempo),
-          String(timeSignature.numerator), String(timeSignature.denominator),
-        ],
-        { env, timeout: 30000 }
-      );
-      session.logBuffer.append(`[gui] pre-create stdout: ${(pre.stdout || '').toString().slice(-500)}`);
-      session.logBuffer.append(`[gui] pre-create stderr: ${(pre.stderr || '').toString().slice(-500)}`);
-      if (pre.status !== 0) {
-        session.logBuffer.append(`[gui] pre-create failed with code ${pre.status}, falling back to GUI --new`);
-      }
-
+      // GUI mode: let Ardour create the session itself with its configured audio backend.
+      // Pre-creating via luasession (Dummy backend) caused an I/O config mismatch when the
+      // GUI opened the file, triggering Route::output_change_handler → DiskReader reconfigure
+      // with a bogus buffer size → PlaybackBuffer hang (huge allocation).
       bin = this._config.ardourGuiBin;
-      const sessionFile = join(ardourSessionDir, `${name}.ardour`);
-      args = ['-n', sessionFile];
-
-      // GUI env: include all ARDOUR_* paths Ardour needs to run.
-      // Keep full env for GUI mode — the earlier theory about these causing
-      // "config changed" was wrong; the hang is from plugin scan on a specific
-      // AU plugin, which is tracked in TODO.md.
-      const guiEnv = {
-        ...env,
-        MCP_HTTP_PORT: String(port),
-      };
-      // Replace env for the GUI spawn
-      session._guiEnv = guiEnv;
-      session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')} (minimal env)`);
+      args = ['-n', '-N', ardourSessionDir];
+      session._guiEnv = { ...env, MCP_HTTP_PORT: String(port) };
+      session.logBuffer.append(`[gui] Launching ${bin} ${args.join(' ')}`);
     } else {
       // Headless mode: arlua with mcp_host.lua script
       bin = this._config.luasessionBin;

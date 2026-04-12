@@ -162,6 +162,19 @@ ControlProtocolManager::set_session (Session* s)
 		return;
 	}
 
+	/* Auto-activate MCP HTTP when MCP_HTTP_PORT env var is set (programmatic launch).
+	 * The port env var override lives in MCPHttp::set_state, but without saved state
+	 * the protocol is never requested/instantiated. */
+	const char* mcp_http_env = getenv ("MCP_HTTP_PORT");
+	if (mcp_http_env && *mcp_http_env) {
+		for (auto const& p : _control_protocol_info) {
+			if (p->name.find ("MCP HTTP") != std::string::npos) {
+				p->requested = true;
+				break;
+			}
+		}
+	}
+
 	for (auto const& p : _control_protocol_info) {
 		if (p->requested) {
 			(void)activate (*p);

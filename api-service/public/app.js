@@ -170,24 +170,265 @@ async function loadTools() {
   if (state.tools.length) renderParamForm(state.tools[0].name);
 }
 
-function renderParamForm(toolName) {
+// Per-tool field overrides: hide fields, or replace them with dynamic dropdowns.
+const TOOL_OVERRIDES = {
+  plugin_add: {
+    hide: ['uniqueId', 'type'],
+    dynamic: {
+      id:       { source: 'tracks',  label: 'Target track' },
+      pluginId: { source: 'plugins', label: 'Plugin (VST3 preferred, AU fallback)' },
+    },
+  },
+  plugin_set_parameter: {
+    hide: ['controlId', 'interface'],
+    dynamic: {
+      id: { source: 'tracks', label: 'Target track' },
+    },
+    selects: ['pluginIndex', 'parameterIndex'],
+  },
+};
+
+async function fetchTracksRaw() {
+  if (!state.sessionId) return [];
+  const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+    { tool: 'tracks_list', params: {} }, { silent: true });
+  const sc = res.body?.structuredContent || res.body?.result?.structuredContent || {};
+  return sc.tracks || sc.routes || [];
+}
+
+async function fetchPluginsRaw() {
+  if (!state.sessionId) return [];
+  const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+    { tool: 'plugin_list_available', params: { includeHidden: true, includeInternal: true } }, { silent: true });
+  const sc = res.body?.structuredContent || res.body?.result?.structuredContent || {};
+  const all = sc.plugins || [];
+  const RANK = { vst3: 0, audiounit: 1, lv2: 2, lua: 3 };
+  const best = new Map();
+  for (const p of all) {
+    if (!(p.type in RANK)) continue;
+    const key = `${p.creator}::${p.name}`;
+    const prev = best.get(key);
+    if (!prev || RANK[p.type] < RANK[prev.type]) best.set(key, p);
+  }
+  return [...best.values()].sort((a, b) =>
+    (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+}
+
+async function trackHasInstrument(trackId) {
+  const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+    { tool: 'track_get_info', params: { id: trackId } }, { silent: true });
+  const sc = res.body?.structuredContent || res.body?.result?.structuredContent || {};
+  const plugs = sc.plugins || [];
+  return plugs.some(p => p.isInstrument || p.kind === 'instrument');
+}
+
+async function renderParamForm(toolName) {
   const tool = state.tools.find(t => t.name === toolName);
   const form = document.getElementById('param-form');
   form.innerHTML = '';
   if (!tool || !tool.input_schema || !tool.input_schema.properties) return;
   const props = tool.input_schema.properties;
+  const override = TOOL_OVERRIDES[toolName] || {};
+  const hide = new Set(override.hide || []);
+  const dyn = override.dynamic || {};
+  const asSelect = new Set(override.selects || []);
+
+  // Prefetch raw data for dynamic sources.
+  const sourceNeeded = new Set(Object.values(dyn).map(d => d.source));
+  const sourceData = {};
+  await Promise.all([...sourceNeeded].map(async (src) => {
+    if (src === 'tracks')  sourceData.tracks  = await fetchTracksRaw();
+    if (src === 'plugins') sourceData.plugins = await fetchPluginsRaw();
+  }));
+  const formatTrack  = t => ({ value: t.id, label: `${t.name} (${t.type || '?'})` });
+  const formatPlugin = p => ({ value: p.pluginId, label: `[${p.type}] ${p.category ? p.category + ' / ' : ''}${p.name} — ${p.creator}` });
+  const HINTS = {
+    strictIo: 'If true, lock the track\'s channel count to inputChannels/outputChannels (no auto-resize on connect).',
+    insert: 'Where to place the new track: end of list, or before/after the anchor track.',
+    relativeToId: 'Route ID anchor for insert=before|after. Leave blank to use the currently-selected track.',
+  };
   for (const [key, spec] of Object.entries(props)) {
+    if (hide.has(key)) continue;
     const label = document.createElement('label');
-    label.textContent = key + (tool.input_schema.required?.includes(key) ? ' *' : '') + ':';
-    const input = document.createElement('input');
+    const dynSpec = dyn[key];
+    label.textContent = (dynSpec?.label || key) + (tool.input_schema.required?.includes(key) ? ' *' : '') + ':';
+    const hint = HINTS[key] || spec.description;
+    if (hint) {
+      const h = document.createElement('div');
+      h.className = 'param-hint';
+      h.textContent = hint;
+      label.appendChild(h);
+    }
+    let input;
+    if (dynSpec) {
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '(select…)';
+      input.appendChild(blank);
+      const raw = sourceData[dynSpec.source] || [];
+      const fmt = dynSpec.source === 'tracks' ? formatTrack : formatPlugin;
+      for (const o of raw.map(fmt)) {
+        const opt = document.createElement('option');
+        opt.value = o.value; opt.textContent = o.label;
+        input.appendChild(opt);
+      }
+    } else if (asSelect.has(key)) {
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '(select track first)';
+      input.appendChild(blank);
+    } else if (Array.isArray(spec.enum)) {
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '(unset)';
+      input.appendChild(blank);
+      for (const v of spec.enum) {
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = v;
+        input.appendChild(opt);
+      }
+    } else {
+      input = document.createElement('input');
+      if (spec.type === 'boolean') input.type = 'checkbox';
+      else if (spec.type === 'integer' || spec.type === 'number') input.type = 'number';
+      else input.type = 'text';
+      if (spec.description) input.placeholder = spec.description;
+    }
     input.dataset.key = key;
     input.dataset.type = spec.type || 'string';
-    if (spec.type === 'boolean') input.type = 'checkbox';
-    else if (spec.type === 'integer' || spec.type === 'number') input.type = 'number';
-    else input.type = 'text';
-    if (spec.description) input.placeholder = spec.description;
     label.appendChild(input);
     form.appendChild(label);
+  }
+
+  // Disable audio-only channel fields when type=midi (tracks_add / buses_add)
+  const typeSel = form.querySelector('[data-key="type"]');
+  const inCh    = form.querySelector('[data-key="inputChannels"]');
+  const outCh   = form.querySelector('[data-key="outputChannels"]');
+  if (typeSel && (inCh || outCh)) {
+    const applyTypeLock = () => {
+      const midi = typeSel.value === 'midi';
+      for (const el of [inCh, outCh]) {
+        if (!el) continue;
+        el.disabled = midi;
+        el.parentElement.style.opacity = midi ? '0.4' : '';
+      }
+    };
+    typeSel.addEventListener('change', applyTypeLock);
+    applyTypeLock();
+  }
+
+  // plugin_add: searchable plugin dropdown + filter by selected track type/state.
+  if (toolName === 'plugin_add') {
+    const trackSel  = form.querySelector('[data-key="id"]');
+    const pluginSel = form.querySelector('[data-key="pluginId"]');
+    if (trackSel && pluginSel) {
+      const searchWrap = document.createElement('div');
+      searchWrap.className = 'param-hint';
+      searchWrap.textContent = 'Search:';
+      const searchBox = document.createElement('input');
+      searchBox.type = 'search';
+      searchBox.placeholder = 'Filter by name / category / creator';
+      searchBox.style.marginTop = '2px';
+      pluginSel.parentElement.insertBefore(searchBox, pluginSel);
+      pluginSel.parentElement.insertBefore(searchWrap, searchBox);
+
+      const rebuild = async () => {
+        const all = sourceData.plugins || [];
+        const tid = trackSel.value;
+        const track = (sourceData.tracks || []).find(t => t.id === tid);
+        const q = searchBox.value.trim().toLowerCase();
+
+        let pool = all;
+        if (track) {
+          const isMidi  = (track.type || '').toLowerCase().includes('midi');
+          const isAudio = (track.type || '').toLowerCase().includes('audio');
+          if (isAudio) {
+            pool = pool.filter(p => !p.isInstrument);
+          } else if (isMidi) {
+            const hasInstr = await trackHasInstrument(tid);
+            pool = hasInstr ? pool.filter(p => !p.isInstrument) : pool.filter(p => p.isInstrument);
+          }
+        }
+        if (q) {
+          pool = pool.filter(p =>
+            p.name.toLowerCase().includes(q) ||
+            (p.category || '').toLowerCase().includes(q) ||
+            (p.creator || '').toLowerCase().includes(q));
+        }
+
+        const prev = pluginSel.value;
+        pluginSel.innerHTML = '';
+        const blank = document.createElement('option');
+        blank.value = ''; blank.textContent = `(select… ${pool.length} shown)`;
+        pluginSel.appendChild(blank);
+        for (const o of pool.map(formatPlugin)) {
+          const opt = document.createElement('option');
+          opt.value = o.value; opt.textContent = o.label;
+          pluginSel.appendChild(opt);
+        }
+        if ([...pluginSel.options].some(o => o.value === prev)) pluginSel.value = prev;
+      };
+
+      trackSel.addEventListener('change', rebuild);
+      searchBox.addEventListener('input', rebuild);
+      rebuild();
+    }
+  }
+
+  // plugin_set_parameter: cascade track → plugin → parameter.
+  if (toolName === 'plugin_set_parameter') {
+    const trackSel  = form.querySelector('[data-key="id"]');
+    const pluginSel = form.querySelector('[data-key="pluginIndex"]');
+    const paramSel  = form.querySelector('[data-key="parameterIndex"]');
+    const valueEl   = form.querySelector('[data-key="value"]');
+
+    const setBlank = (sel, text) => { sel.innerHTML = ''; const o = document.createElement('option'); o.value = ''; o.textContent = text; sel.appendChild(o); };
+    const fillPlugins = async () => {
+      setBlank(paramSel, '(select plugin first)');
+      if (!trackSel.value) { setBlank(pluginSel, '(select track first)'); return; }
+      const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+        { tool: 'track_get_info', params: { id: trackSel.value } }, { silent: true });
+      const plugs = res.body?.structuredContent?.plugins || [];
+      setBlank(pluginSel, plugs.length ? `(select plugin — ${plugs.length})` : '(no plugins on track)');
+      for (const p of plugs) {
+        const o = document.createElement('option');
+        o.value = String(p.index);
+        o.textContent = `${p.index}: ${p.displayName || p.name}${p.enabled ? '' : ' (disabled)'}`;
+        pluginSel.appendChild(o);
+      }
+    };
+    const fillParams = async () => {
+      if (!trackSel.value || pluginSel.value === '') { setBlank(paramSel, '(select plugin first)'); return; }
+      const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+        { tool: 'plugin_get_description', params: { id: trackSel.value, pluginIndex: parseInt(pluginSel.value, 10) } }, { silent: true });
+      const params = (res.body?.structuredContent?.parameters || []).filter(p => p.isInput && !p.isHidden);
+      setBlank(paramSel, params.length ? `(select parameter — ${params.length})` : '(no writable params)');
+      paramSel._paramMeta = {};
+      for (const p of params) {
+        const o = document.createElement('option');
+        o.value = String(p.index);
+        const range = (p.lower !== undefined && p.upper !== undefined) ? ` [${p.lower}..${p.upper}]` : '';
+        o.textContent = `${p.label}${range}  (cur ${p.currentValue})`;
+        paramSel.appendChild(o);
+        paramSel._paramMeta[p.index] = p;
+      }
+    };
+    const updateValueHint = () => {
+      if (!valueEl) return;
+      const meta = paramSel._paramMeta?.[paramSel.value];
+      if (meta) {
+        valueEl.min = meta.lower;
+        valueEl.max = meta.upper;
+        valueEl.placeholder = `${meta.lower} … ${meta.upper} (current ${meta.currentValue})`;
+      } else {
+        valueEl.removeAttribute('min'); valueEl.removeAttribute('max');
+        valueEl.placeholder = '';
+      }
+    };
+
+    trackSel.addEventListener('change', async () => { await fillPlugins(); await fillParams(); updateValueHint(); });
+    pluginSel.addEventListener('change', async () => { await fillParams(); updateValueHint(); });
+    paramSel.addEventListener('change', updateValueHint);
   }
 }
 
@@ -195,14 +436,15 @@ async function sendAction() {
   if (!state.sessionId) { alert('Select a session first'); return; }
   const toolName = document.getElementById('tool-select').value;
   const params = {};
-  for (const input of document.querySelectorAll('#param-form input')) {
+  for (const input of document.querySelectorAll('#param-form input, #param-form select')) {
+    if (input.disabled) continue;
     const key = input.dataset.key;
     const type = input.dataset.type;
     let val = input.value;
+    if (type === 'boolean') { params[key] = input.checked; continue; }
     if (val === '') continue;
     if (type === 'integer') val = parseInt(val, 10);
     else if (type === 'number') val = parseFloat(val);
-    else if (type === 'boolean') val = input.checked;
     params[key] = val;
   }
   await api('POST', `/v1/sessions/${state.sessionId}/actions`, { tool: toolName, params });
@@ -220,6 +462,13 @@ document.getElementById('btn-new-session').onclick = async () => {
   setTimeout(refreshSessions, 500);
 };
 
+async function quickAction(tool) {
+  if (!state.sessionId) { alert('Select a session first'); return; }
+  await api('POST', `/v1/sessions/${state.sessionId}/actions`, { tool, params: {} });
+}
+document.getElementById('btn-play').onclick = () => quickAction('transport_play');
+document.getElementById('btn-stop').onclick = () => quickAction('transport_stop');
+document.getElementById('btn-save').onclick = () => quickAction('session_save');
 document.getElementById('btn-send').onclick = sendAction;
 document.getElementById('btn-clear-log').onclick = () => document.getElementById('log').innerHTML = '';
 document.getElementById('btn-copy-log').onclick = copyLogToClipboard;
