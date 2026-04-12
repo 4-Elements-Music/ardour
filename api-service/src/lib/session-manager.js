@@ -131,7 +131,7 @@ export class SessionManager {
               try {
                 const sessionFile = join(ardourSessionDir, `${name}.ardour`);
                 session.logBuffer.append(`Launching GUI: ${this._config.ardourGuiBin} ${sessionFile}`);
-                const gui = this._spawner(this._config.ardourGuiBin, [sessionFile], { env, detached: true });
+                const gui = this._spawner(this._config.ardourGuiBin, ['-d', '-n', sessionFile], { env, detached: true });
                 session._guiChild = gui;
                 if (gui.stdout) gui.stdout.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
                 if (gui.stderr) gui.stderr.on('data', d => session.logBuffer.append('GUI: ' + d.toString()));
