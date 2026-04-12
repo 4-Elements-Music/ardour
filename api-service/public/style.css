@@ -18,8 +18,19 @@ h3 { margin-top: 0; color: #eee; }
 #param-form { margin: 8px 0; }
 #param-form label { display: block; margin: 4px 0; }
 #param-form input, #param-form textarea { width: 100%; padding: 4px; background: #222; color: #ccc; border: 1px solid #555; font-family: inherit; }
-#log { max-height: calc(100vh - 140px); overflow-y: auto; }
-.log-entry { margin-bottom: 6px; padding: 6px; background: #222; border-left: 3px solid #555; font-size: 11px; }
+.log-controls { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+.log-controls input { flex: 1; padding: 4px 6px; background: #222; color: #ccc; border: 1px solid #555; }
+#log { max-height: calc(100vh - 180px); overflow-y: auto; scroll-behavior: smooth; }
+.log-entry { margin-bottom: 4px; background: #222; border-left: 3px solid #555; font-size: 11px; }
 .log-entry.success { border-left-color: #4f4; }
 .log-entry.error { border-left-color: #f44; }
-.log-entry pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; }
+.log-entry summary { padding: 5px 8px; cursor: pointer; user-select: none; display: flex; gap: 8px; align-items: center; list-style: none; }
+.log-entry summary::-webkit-details-marker { display: none; }
+.log-entry summary::before { content: '▸'; font-size: 10px; color: #888; transition: transform 0.1s; }
+.log-entry[open] > summary::before { content: '▾'; }
+.log-entry summary .time { color: #777; font-size: 10px; }
+.log-entry summary .method { color: #8cf; font-weight: bold; min-width: 40px; }
+.log-entry summary .path { color: #ccc; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-entry summary .status { color: #999; font-size: 10px; padding: 1px 6px; background: #333; border-radius: 2px; }
+.log-entry.error summary .status { color: #f88; background: #402020; }
+.log-entry pre { margin: 0; padding: 6px 8px; background: #111; border-top: 1px solid #333; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; }

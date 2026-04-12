@@ -3,7 +3,14 @@ const state = {
   tools: [],
 };
 
-async function api(method, path, body) {
+// Silent endpoints — called frequently, log full response is noise
+const SILENT_GET_PATHS = new Set(['/v1/tools']);
+// Always-silent polling endpoints (we still log errors)
+function isPollingPath(method, path) {
+  return method === 'GET' && path === '/v1/sessions';
+}
+
+async function api(method, path, body, { silent = false } = {}) {
   const opts = { method, headers: {} };
   if (body !== undefined && body !== null) {
     opts.headers['Content-Type'] = 'application/json';
@@ -13,15 +20,63 @@ async function api(method, path, body) {
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
-  logEntry(method + ' ' + path, json, res.ok);
+  const shouldLog = !silent
+    && !(res.ok && isPollingPath(method, path))  // hide successful polling
+    && !(res.ok && SILENT_GET_PATHS.has(path)); // hide successful /v1/tools
+  if (shouldLog) logEntry(method, path, res.status, json, res.ok);
   return { ok: res.ok, status: res.status, body: json };
 }
 
-function logEntry(label, data, ok) {
-  const el = document.createElement('div');
+function isAtBottom(container, tolerance = 40) {
+  return container.scrollHeight - container.scrollTop - container.clientHeight < tolerance;
+}
+
+function logEntry(method, path, status, data, ok) {
+  const log = document.getElementById('log');
+  const wasAtBottom = isAtBottom(log);
+
+  const el = document.createElement('details');
   el.className = 'log-entry ' + (ok ? 'success' : 'error');
-  el.innerHTML = '<strong>' + escapeHtml(label) + '</strong><pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
-  document.getElementById('log').prepend(el);
+  const summary = document.createElement('summary');
+  const timestamp = new Date().toLocaleTimeString();
+  summary.innerHTML =
+    `<span class="time">${timestamp}</span> ` +
+    `<span class="method">${escapeHtml(method)}</span> ` +
+    `<span class="path">${escapeHtml(path)}</span> ` +
+    `<span class="status">${status}</span>`;
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(data, null, 2);
+  el.appendChild(summary);
+  el.appendChild(pre);
+  log.appendChild(el);
+
+  // Only auto-scroll if user was already at the bottom
+  if (wasAtBottom) log.scrollTop = log.scrollHeight;
+}
+
+function getAllLogText() {
+  const entries = document.querySelectorAll('#log .log-entry');
+  const parts = [];
+  for (const e of entries) {
+    const summary = e.querySelector('summary')?.innerText || '';
+    const pre = e.querySelector('pre')?.textContent || '';
+    parts.push(summary + '\n' + pre);
+  }
+  return parts.join('\n\n---\n\n');
+}
+
+async function copyLogToClipboard() {
+  try {
+    await navigator.clipboard.writeText(getAllLogText());
+    const btn = document.getElementById('btn-copy-log');
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 1500);
+    }
+  } catch (e) {
+    alert('Copy failed: ' + e.message);
+  }
 }
 
 function escapeHtml(s) {
@@ -86,14 +141,7 @@ async function viewSessionLog(sessionId) {
   }
 
   const text = parts.join('\n');
-  logEntry(`Session log ${sessionId.slice(0, 8)}`, { log: text }, true);
-
-  // Also render the raw log as a big pre for easy copying
-  const el = document.createElement('div');
-  el.className = 'log-entry';
-  el.style.borderLeftColor = '#ff0';
-  el.innerHTML = `<strong>Full log (copyable):</strong><pre style="max-height:400px;overflow:auto;">${escapeHtml(text)}</pre>`;
-  document.getElementById('log').prepend(el);
+  logEntry('LOG', `session ${sessionId.slice(0, 8)}`, 200, { log: text }, true);
 }
 
 function updateIndicator() {
@@ -108,7 +156,7 @@ function updateIndicator() {
 }
 
 async function loadTools() {
-  const { body } = await api('GET', '/v1/tools');
+  const { body } = await api('GET', '/v1/tools', null, { silent: true });
   state.tools = body.tools || [];
   const sel = document.getElementById('tool-select');
   sel.innerHTML = '';
@@ -174,6 +222,15 @@ document.getElementById('btn-new-session').onclick = async () => {
 
 document.getElementById('btn-send').onclick = sendAction;
 document.getElementById('btn-clear-log').onclick = () => document.getElementById('log').innerHTML = '';
+document.getElementById('btn-copy-log').onclick = copyLogToClipboard;
+
+document.getElementById('log-filter').oninput = (e) => {
+  const needle = e.target.value.trim().toLowerCase();
+  for (const entry of document.querySelectorAll('#log .log-entry')) {
+    const text = entry.innerText.toLowerCase();
+    entry.style.display = (needle === '' || text.includes(needle)) ? '' : 'none';
+  }
+};
 
 loadTools();
 refreshSessions();
