@@ -23,7 +23,7 @@ import { spawn } from 'child_process';
  */
 const OUTPUT_CAP = 65536;
 
-export function decodeToCanonicalWav ({ input, output, validatorBin, timeoutMs = 30000 }) {
+export function decodeToCanonicalWav ({ input, output, validatorBin, timeoutMs = 60000 }) {
   return new Promise((resolve, reject) => {
     if (!validatorBin) {
       return reject(Object.assign(new Error('audio validator binary not configured'),
