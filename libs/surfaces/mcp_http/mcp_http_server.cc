@@ -6224,6 +6224,43 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
+	/* ----- Parse optional region-property overrides ----- */
+	const int64_t fade_in_samples  = std::max<int64_t> (0, root.get<int64_t> ("params.arguments.fadeInSamples",  64));
+	const int64_t fade_out_samples = std::max<int64_t> (0, root.get<int64_t> ("params.arguments.fadeOutSamples", 64));
+	const double  gain_db          = root.get<double>  ("params.arguments.gainDb",         0.0);
+	const bool    polarity_invert  = root.get<bool>    ("params.arguments.polarityInvert", false);
+	const bool    reverse_playback = root.get<bool>    ("params.arguments.reverse",        false);
+
+	if (!std::isfinite (gain_db)) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "gainDb must be finite",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* AudioRegion has no non-destructive reverse API (ARDOUR::Reverse is a
+	 * destructive Filter that rewrites source audio). Reject reverse=true
+	 * with a structured error rather than silently ignoring the request. */
+	if (reverse_playback) {
+		return audio_region_add_validation_error (id, "REVERSE_NOT_SUPPORTED",
+		    "reverse playback is not supported by AudioRegion (no non-destructive reverse API)",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	std::shared_ptr<ARDOUR::AudioRegion> placed_ar =
+	    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (region);
+	if (!placed_ar) {
+		return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
+		    "placed region is not AudioRegion",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Apply region properties. Non-destructive overrides on the playlist
+	 * region; do not rewrite source audio. */
+	placed_ar->set_fade_in_length  ((ARDOUR::samplecnt_t) fade_in_samples);
+	placed_ar->set_fade_out_length ((ARDOUR::samplecnt_t) fade_out_samples);
+	const float base_amp = (float) std::pow (10.0, gain_db / 20.0);
+	placed_ar->set_scale_amplitude (polarity_invert ? -base_amp : base_amp);
+
 	/* ----- Commit the insert as an undoable command ----- */
 	const Temporal::timepos_t start_pos = Temporal::timepos_t (samplepos_t (start_sample));
 	session.begin_reversible_command ("audio_region_add");
@@ -6250,6 +6287,11 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"sourceLengthSamples\":" << source_length                       << ","
 	    << "\"fileCopied\":true,"
 	    << "\"sessionFilePath\":\""   << json_escape (session_file_path)     << "\","
+	    << "\"fadeInSamples\":"       << fade_in_samples                     << ","
+	    << "\"fadeOutSamples\":"      << fade_out_samples                    << ","
+	    << "\"gainDb\":"              << gain_db                             << ","
+	    << "\"polarityInvert\":"      << (polarity_invert  ? "true" : "false") << ","
+	    << "\"reverse\":"             << (reverse_playback ? "true" : "false") << ","
 	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
