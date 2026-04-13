@@ -6403,6 +6403,63 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		                : "trimmed-existing";
 	}
 
+	/* Edge crossfade detection: find non-overlapping regions whose boundaries sit
+	 * within edgeToleranceMs of the new region's start or end. Runs after overlap
+	 * detection so overlapping regions aren't double-counted. */
+	const std::string edge_policy   = root.get<std::string> ("params.arguments.edgeCrossfade",    "auto");
+	const int         edge_tol_ms   = root.get<int>         ("params.arguments.edgeToleranceMs",  10);
+	const int         edge_xfade_ms = root.get<int>         ("params.arguments.edgeCrossfadeMs",  10);
+
+	if (edge_policy != "auto" && edge_policy != "none") {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "edgeCrossfade must be one of: auto | none (got '" + edge_policy + "')",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	if (edge_tol_ms < 0 || edge_xfade_ms < 0) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "edgeToleranceMs and edgeCrossfadeMs must be >= 0",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	struct EdgeNeighbor { std::shared_ptr<ARDOUR::AudioRegion> region; std::string side; };
+	std::vector<EdgeNeighbor> edge_neighbors;
+	const ARDOUR::samplecnt_t edge_tol_samples   =
+	    (ARDOUR::samplecnt_t) ((double) edge_tol_ms   / 1000.0 * (double) session.sample_rate ());
+	const ARDOUR::samplecnt_t edge_xfade_samples =
+	    (ARDOUR::samplecnt_t) ((double) edge_xfade_ms / 1000.0 * (double) session.sample_rate ());
+
+	if (edge_policy == "auto") {
+		std::shared_ptr<ARDOUR::RegionList> all = pl->region_list ();
+		const ARDOUR::samplepos_t new_end_sample = start_sample + timeline_length;
+		if (all) {
+			for (auto const& r : *all) {
+				if (!r) continue;
+				const ARDOUR::samplepos_t r_pos = r->position ().samples ();
+				const ARDOUR::samplepos_t r_end = r->end ().samples ();
+				/* Skip overlapping regions — handled by onOverlap policy. */
+				const bool r_overlaps = (r_pos < new_end_sample) && (r_end > (ARDOUR::samplepos_t) start_sample);
+				if (r_overlaps) continue;
+
+				std::shared_ptr<ARDOUR::AudioRegion> ar_r =
+				    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (r);
+				if (!ar_r) continue;
+
+				/* R ends within tolerance before (or exactly at) new_start. */
+				if (r_end <= (ARDOUR::samplepos_t) start_sample &&
+				    ((ARDOUR::samplepos_t) start_sample - r_end) <= (ARDOUR::samplepos_t) edge_tol_samples) {
+					edge_neighbors.push_back ({ar_r, std::string ("start")});
+					continue;
+				}
+				/* R starts within tolerance after (or exactly at) new_end. */
+				if (r_pos >= new_end_sample &&
+				    (r_pos - new_end_sample) <= (ARDOUR::samplepos_t) edge_tol_samples) {
+					edge_neighbors.push_back ({ar_r, std::string ("end")});
+					continue;
+				}
+			}
+		}
+	}
+
 	/* ----- Parse optional region-property overrides ----- */
 	const int64_t fade_in_samples  = root.get<int64_t> ("params.arguments.fadeInSamples",  64);
 	const int64_t fade_out_samples = root.get<int64_t> ("params.arguments.fadeOutSamples", 64);
@@ -6517,6 +6574,37 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	}
 	affected_json << "]";
 
+	/* Edge crossfade MUTATION: runs inside begin_reversible_command alongside
+	 * overlap mutations so neighbor-fade edits share the undo group. */
+	std::ostringstream edges_json;
+	edges_json << "[";
+	{
+		bool first_edge = true;
+		for (auto const& n : edge_neighbors) {
+			if (!first_edge) edges_json << ",";
+			first_edge = false;
+
+			if (n.side == "start") {
+				/* Neighbor sits just before new region: fade its tail out, fade new region's head in. */
+				const ARDOUR::samplecnt_t cur_out = (ARDOUR::samplecnt_t) n.region->fade_out_length ().samples ();
+				n.region->set_fade_out_length (std::max (cur_out, edge_xfade_samples));
+				const ARDOUR::samplecnt_t cur_in = (ARDOUR::samplecnt_t) placed_ar->fade_in_length ().samples ();
+				placed_ar->set_fade_in_length (std::max (cur_in, edge_xfade_samples));
+			} else {
+				/* Neighbor sits just after: fade new region's tail out, neighbor's head in. */
+				const ARDOUR::samplecnt_t cur_in = (ARDOUR::samplecnt_t) n.region->fade_in_length ().samples ();
+				n.region->set_fade_in_length (std::max (cur_in, edge_xfade_samples));
+				const ARDOUR::samplecnt_t cur_out = (ARDOUR::samplecnt_t) placed_ar->fade_out_length ().samples ();
+				placed_ar->set_fade_out_length (std::max (cur_out, edge_xfade_samples));
+			}
+
+			edges_json << "{\"side\":\"" << n.side << "\""
+			           << ",\"neighborRegionId\":\"" << json_escape (n.region->id ().to_s ()) << "\""
+			           << ",\"lengthSamples\":" << edge_xfade_samples << "}";
+		}
+	}
+	edges_json << "]";
+
 	region->set_position (start_pos);
 	pl->add_region (region, start_pos, 1.0, false);
 	pl->rdiff_and_add_command (&session);
@@ -6547,6 +6635,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"reverse\":"             << (reverse_playback ? "true" : "false") << ","
 	    << "\"overlapAction\":\""     << json_escape (overlap_action)        << "\","
 	    << "\"overlappingRegionsAffected\":" << affected_json.str ()         << ","
+	    << "\"edgeCrossfadesCreated\":"      << edges_json.str ()            << ","
 	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
