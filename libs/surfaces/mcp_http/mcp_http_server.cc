@@ -6115,6 +6115,64 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	}
 
 	const ARDOUR::samplecnt_t source_length = asrc->length ().samples ();
+
+	const uint32_t src_channels = (uint32_t) status.sources.size ();
+
+	std::shared_ptr<ARDOUR::AudioTrack> audio_track =
+	    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
+	/* route was already validated as AudioTrack earlier; the cast must succeed. */
+
+	const uint32_t track_channels = audio_track->n_inputs ().n_audio ();
+
+	bool         track_created   = false;
+	std::string  new_track_id;
+	std::string  new_track_name;
+	std::shared_ptr<ARDOUR::AudioTrack> effective_track = audio_track;
+
+	if (src_channels != track_channels) {
+		const std::string policy = root.get<std::string> ("params.arguments.channelMismatch", "error");
+		const bool        allow  = root.get<bool>        ("params.arguments.allowTrackCreation", false);
+
+		if (policy == "error") {
+			return audio_region_add_validation_error (id, "CHANNEL_MISMATCH",
+			    "file has " + std::to_string (src_channels) + " channel(s), track has "
+			      + std::to_string (track_channels) + " audio input(s); set channelMismatch='auto-track'"
+			      " with allowTrackCreation=true, or 'truncate' to accept mix/drop",
+			    track_id, upload_id, resolved_str, dry_run);
+		} else if (policy == "auto-track") {
+			if (!allow) {
+				return audio_region_add_validation_error (id, "CHANNEL_MISMATCH",
+				    "channelMismatch='auto-track' requires allowTrackCreation=true as safety gate",
+				    track_id, upload_id, resolved_str, dry_run);
+			}
+			const std::string new_name = audio_track->name () + "-" + std::to_string (src_channels) + "ch";
+			std::list<std::shared_ptr<ARDOUR::AudioTrack>> created = session.new_audio_track (
+			    (int) src_channels, (int) src_channels,
+			    std::shared_ptr<ARDOUR::RouteGroup> (),
+			    1, /* how_many */
+			    new_name,
+			    audio_track->presentation_info ().order () + 1,
+			    ARDOUR::Normal,
+			    true,  /* input_auto_connect */
+			    false  /* trigger_visibility */);
+			if (created.empty () || !created.front ()) {
+				return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
+				    "failed to auto-create a " + std::to_string (src_channels) + "-channel track",
+				    track_id, upload_id, resolved_str, dry_run);
+			}
+			effective_track = created.front ();
+			track_created   = true;
+			new_track_id    = effective_track->id ().to_s ();
+			new_track_name  = effective_track->name ();
+		} else if (policy == "truncate") {
+			/* fall through — Ardour handles width mismatch by truncation at the playlist layer */
+		} else {
+			return audio_region_add_validation_error (id, "INVALID_PARAMS",
+			    "channelMismatch must be one of: error | truncate | auto-track (got '" + policy + "')",
+			    track_id, upload_id, resolved_str, dry_run);
+		}
+	}
+
 	std::shared_ptr<ARDOUR::AudioFileSource> afs =
 	    std::dynamic_pointer_cast<ARDOUR::AudioFileSource> (asrc);
 	const std::string session_file_path = afs ? afs->path () : std::string ();
@@ -6215,9 +6273,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
-	std::shared_ptr<ARDOUR::AudioTrack> audio_track =
-	    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
-	std::shared_ptr<ARDOUR::Playlist> pl = audio_track ? audio_track->playlist () : std::shared_ptr<ARDOUR::Playlist> ();
+	std::shared_ptr<ARDOUR::Playlist> pl = effective_track ? effective_track->playlist () : std::shared_ptr<ARDOUR::Playlist> ();
 	if (!pl) {
 		return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
 		    "no playlist on track",
@@ -6294,9 +6350,11 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"structuredContent\":{"
 	    << "\"ok\":true,"
 	    << "\"regionId\":\""          << json_escape (region->id ().to_s ()) << "\","
-	    << "\"trackId\":\""           << json_escape (track_id)              << "\","
-	    << "\"trackCreated\":false,"
-	    << "\"originalTrackId\":\""   << json_escape (track_id)              << "\","
+	    << "\"trackId\":\""           << json_escape (track_created ? new_track_id : track_id) << "\","
+	    << "\"trackCreated\":"        << (track_created ? "true" : "false") << ","
+	    << "\"originalTrackId\":\""   << json_escape (track_id) << "\","
+	    << "\"newTrackId\":"          << (track_created ? "\"" + json_escape (new_track_id) + "\"" : "null") << ","
+	    << "\"newTrackName\":"        << (track_created ? "\"" + json_escape (new_track_name) + "\"" : "null") << ","
 	    << "\"startSample\":"         << start_sample                        << ","
 	    << "\"timelineLengthSamples\":" << timeline_length                   << ","
 	    << "\"sourceId\":\""          << json_escape (asrc->id ().to_s ())   << "\","
