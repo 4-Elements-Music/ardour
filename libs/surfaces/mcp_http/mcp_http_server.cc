@@ -6490,6 +6490,21 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
+	/* ----- Repeat / paste-multiple params ----- */
+	const int    rep_count  = root.get<int>    ("params.arguments.repeat.count",       1);
+	const double rep_stride = root.get<double> ("params.arguments.repeat.strideBeats", 0.0);
+
+	if (rep_count < 1 || rep_count > 100) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "repeat.count must be in [1, 100] (got " + std::to_string (rep_count) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	if (rep_stride < 0.0 || !std::isfinite (rep_stride)) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "repeat.strideBeats must be >= 0 and finite",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
 	/* AudioRegion has no non-destructive reverse API (ARDOUR::Reverse is a
 	 * destructive Filter that rewrites source audio). Reject reverse=true
 	 * with a structured error rather than silently ignoring the request. */
@@ -6607,6 +6622,30 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 
 	region->set_position (start_pos);
 	pl->add_region (region, start_pos, 1.0, false);
+
+	/* Repeat: paste count-1 additional copies at strideBeats intervals.
+	 * v1 limitation: copies do NOT re-trigger overlap or edge-crossfade
+	 * resolution; they rely on Ardour's default playlist layering. */
+	std::ostringstream rep_ids_json;
+	rep_ids_json << "[";
+	bool first_rep = true;
+	if (rep_count > 1 && rep_stride > 0.0) {
+		for (int i = 1; i < rep_count; ++i) {
+			const Temporal::timepos_t orig_start {samplepos_t (start_sample)};
+			Temporal::Beats           stride_beats = Temporal::Beats::from_double (rep_stride * (double) i);
+			Temporal::timepos_t       copy_start   = orig_start + Temporal::timecnt_t (stride_beats, orig_start);
+
+			std::shared_ptr<ARDOUR::Region> copy = ARDOUR::RegionFactory::create (region, true);
+			if (!copy) continue;
+			pl->add_region (copy, copy_start, 1.0, false);
+
+			if (!first_rep) rep_ids_json << ",";
+			first_rep = false;
+			rep_ids_json << "\"" << json_escape (copy->id ().to_s ()) << "\"";
+		}
+	}
+	rep_ids_json << "]";
+
 	pl->rdiff_and_add_command (&session);
 	session.commit_reversible_command ();
 
@@ -6636,6 +6675,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"overlapAction\":\""     << json_escape (overlap_action)        << "\","
 	    << "\"overlappingRegionsAffected\":" << affected_json.str ()         << ","
 	    << "\"edgeCrossfadesCreated\":"      << edges_json.str ()            << ","
+	    << "\"repeatedRegionIds\":"          << rep_ids_json.str ()          << ","
 	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
