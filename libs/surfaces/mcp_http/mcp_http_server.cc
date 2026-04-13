@@ -6123,6 +6123,61 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		sources.push_back (s);
 	}
 
+	/* sourceOffsetSamples — offset into the source file (pre-stretch frames) */
+	const int64_t src_offset = root.get<int64_t> ("params.arguments.sourceOffsetSamples", 0);
+	if (src_offset < 0 || src_offset >= (int64_t) source_length) {
+		return audio_region_add_validation_error (id, "INVALID_POSITION",
+		    "sourceOffsetSamples out of range (0.." + std::to_string (source_length - 1) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* timelineLength — optional; defaults to rest-of-source from offset.
+	 * Uses the same tagged-union parser as position but note the distinction:
+	 * for length the units "beats" and "bars+beats" mean "beat-count duration"
+	 * not "timeline position". For v1 we reuse parse_position_union's samples/seconds
+	 * branches since those are straightforward durations; beats/bars+beats length is
+	 * deferred (use samples/seconds for v1). If caller passes beats/bars+beats for
+	 * timelineLength, reject with INVALID_POSITION pointing at the limitation. */
+	int64_t timeline_length = -1;
+	const auto tl_opt = root.get_child_optional ("params.arguments.timelineLength");
+	if (tl_opt) {
+		const std::string unit = tl_opt->get<std::string> ("unit", "");
+		if (unit == "samples") {
+			timeline_length = tl_opt->get<int64_t> ("value", -1);
+			if (timeline_length < 0) {
+				return audio_region_add_validation_error (id, "INVALID_POSITION",
+				    "timelineLength.value must be >= 0",
+				    track_id, upload_id, resolved_str, dry_run);
+			}
+		} else if (unit == "seconds") {
+			const double secs = tl_opt->get<double> ("value", -1.0);
+			if (secs < 0.0 || !std::isfinite (secs)) {
+				return audio_region_add_validation_error (id, "INVALID_POSITION",
+				    "timelineLength.value (seconds) must be >= 0 and finite",
+				    track_id, upload_id, resolved_str, dry_run);
+			}
+			timeline_length = (int64_t) (secs * (double) session.sample_rate ());
+		} else if (unit == "beats" || unit == "bars+beats") {
+			return audio_region_add_validation_error (id, "INVALID_POSITION",
+			    "timelineLength with unit '" + unit + "' not supported in v1 (use samples or seconds)",
+			    track_id, upload_id, resolved_str, dry_run);
+		} else {
+			return audio_region_add_validation_error (id, "INVALID_POSITION",
+			    "timelineLength.unit required (samples or seconds in v1)",
+			    track_id, upload_id, resolved_str, dry_run);
+		}
+	}
+	if (timeline_length < 0) {
+		timeline_length = source_length - src_offset;
+	}
+	if (src_offset + timeline_length > (int64_t) source_length) {
+		return audio_region_add_validation_error (id, "INSUFFICIENT_SOURCE",
+		    "sourceOffsetSamples (" + std::to_string (src_offset)
+		        + ") + timelineLength (" + std::to_string (timeline_length)
+		        + ") exceeds sourceLengthSamples (" + std::to_string (source_length) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
 	/* ----- Build whole-file region, then a playlist-usable region ----- */
 	PBD::PropertyList whole_plist;
 	whole_plist.add (ARDOUR::Properties::start,      Temporal::timecnt_t (Temporal::AudioTime));
@@ -6139,10 +6194,10 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	}
 
 	PBD::PropertyList playlist_plist;
-	playlist_plist.add (ARDOUR::Properties::start,      Temporal::timecnt_t (Temporal::AudioTime));
-	playlist_plist.add (ARDOUR::Properties::length,     asrc->length ());
+	playlist_plist.add (ARDOUR::Properties::start,      Temporal::timepos_t (samplepos_t (src_offset)));
+	playlist_plist.add (ARDOUR::Properties::length,     Temporal::timecnt_t (timeline_length));
 	playlist_plist.add (ARDOUR::Properties::name,       std::string (PBD::basename_nosuffix (resolved_str)));
-	playlist_plist.add (ARDOUR::Properties::whole_file, false);
+	playlist_plist.add (ARDOUR::Properties::whole_file, (src_offset == 0 && timeline_length == (int64_t) source_length));
 	playlist_plist.add (ARDOUR::Properties::external,   false);
 
 	std::shared_ptr<ARDOUR::Region> region = ARDOUR::RegionFactory::create (whole, playlist_plist);
@@ -6181,7 +6236,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"trackCreated\":false,"
 	    << "\"originalTrackId\":\""   << json_escape (track_id)              << "\","
 	    << "\"startSample\":"         << start_sample                        << ","
-	    << "\"timelineLengthSamples\":" << source_length                     << ","
+	    << "\"timelineLengthSamples\":" << timeline_length                   << ","
 	    << "\"sourceId\":\""          << json_escape (asrc->id ().to_s ())   << "\","
 	    << "\"sourceChannels\":"      << sources.size ()                     << ","
 	    << "\"sourceLengthSamples\":" << source_length                       << ","
