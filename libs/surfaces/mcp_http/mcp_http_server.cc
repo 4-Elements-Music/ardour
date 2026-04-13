@@ -6138,25 +6138,33 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	 * branches since those are straightforward durations; beats/bars+beats length is
 	 * deferred (use samples/seconds for v1). If caller passes beats/bars+beats for
 	 * timelineLength, reject with INVALID_POSITION pointing at the limitation. */
-	int64_t timeline_length = -1;
+	int64_t timeline_length = 0;
+	bool    tl_set          = false;
 	const auto tl_opt = root.get_child_optional ("params.arguments.timelineLength");
 	if (tl_opt) {
 		const std::string unit = tl_opt->get<std::string> ("unit", "");
 		if (unit == "samples") {
 			timeline_length = tl_opt->get<int64_t> ("value", -1);
-			if (timeline_length < 0) {
+			if (timeline_length <= 0) {
 				return audio_region_add_validation_error (id, "INVALID_POSITION",
-				    "timelineLength.value must be >= 0",
+				    "timelineLength.value must be > 0 (samples)",
 				    track_id, upload_id, resolved_str, dry_run);
 			}
+			tl_set = true;
 		} else if (unit == "seconds") {
 			const double secs = tl_opt->get<double> ("value", -1.0);
-			if (secs < 0.0 || !std::isfinite (secs)) {
+			if (secs <= 0.0 || !std::isfinite (secs)) {
 				return audio_region_add_validation_error (id, "INVALID_POSITION",
-				    "timelineLength.value (seconds) must be >= 0 and finite",
+				    "timelineLength.value must be > 0 and finite (seconds)",
 				    track_id, upload_id, resolved_str, dry_run);
 			}
 			timeline_length = (int64_t) (secs * (double) session.sample_rate ());
+			if (timeline_length == 0) {
+				return audio_region_add_validation_error (id, "INVALID_POSITION",
+				    "timelineLength in seconds rounds to 0 samples; use a larger value",
+				    track_id, upload_id, resolved_str, dry_run);
+			}
+			tl_set = true;
 		} else if (unit == "beats" || unit == "bars+beats") {
 			return audio_region_add_validation_error (id, "INVALID_POSITION",
 			    "timelineLength with unit '" + unit + "' not supported in v1 (use samples or seconds)",
@@ -6167,7 +6175,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 			    track_id, upload_id, resolved_str, dry_run);
 		}
 	}
-	if (timeline_length < 0) {
+	if (!tl_set) {
 		timeline_length = source_length - src_offset;
 	}
 	if (src_offset + timeline_length > (int64_t) source_length) {
