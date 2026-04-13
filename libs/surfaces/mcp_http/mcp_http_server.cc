@@ -6079,11 +6079,57 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		return audio_region_add_validation_error (id, "INVALID_PARAMS", "position required",
 		    track_id, upload_id, resolved_str, dry_run);
 	}
-	std::string   pos_err_code, pos_err_msg;
-	const int64_t start_sample = parse_position_union (session, *position_opt, pos_err_code, pos_err_msg);
+	std::string pos_err_code, pos_err_msg;
+	int64_t     start_sample = parse_position_union (session, *position_opt, pos_err_code, pos_err_msg);
 	if (start_sample < 0) {
 		return audio_region_add_validation_error (id, pos_err_code, pos_err_msg,
 		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Snap: optional post-parse rounding of start_sample to nearest bar/beat/grid line. */
+	const std::string snap_mode = root.get<std::string> ("params.arguments.snap", "none");
+	if (snap_mode != "none") {
+		if (snap_mode != "bar" && snap_mode != "beat" && snap_mode != "grid") {
+			return audio_region_add_validation_error (id, "INVALID_PARAMS",
+			    "snap must be one of: none | bar | beat | grid (got '" + snap_mode + "')",
+			    track_id, upload_id, resolved_str, dry_run);
+		}
+
+		Temporal::TempoMap::SharedPtr tm = Temporal::TempoMap::use ();
+		const Temporal::timepos_t     original_pos {samplepos_t (start_sample)};
+		const Temporal::BBT_Argument  bbt = tm->bbt_at (original_pos);
+
+		if (snap_mode == "bar") {
+			/* Round to nearest bar — compare distance to bar floor and ceiling. */
+			const Temporal::BBT_Argument floor_bbt ((int32_t) bbt.bars,     1, 0);
+			const Temporal::BBT_Argument ceil_bbt  ((int32_t) bbt.bars + 1, 1, 0);
+			const samplepos_t floor_sample = tm->sample_at (floor_bbt);
+			const samplepos_t ceil_sample  = tm->sample_at (ceil_bbt);
+			start_sample = ((start_sample - floor_sample) <= (ceil_sample - start_sample))
+			                 ? (int64_t) floor_sample
+			                 : (int64_t) ceil_sample;
+		} else if (snap_mode == "beat") {
+			/* Round to nearest beat — ticks portion rounded to 0 or carry to next beat. */
+			int32_t bar_adj  = (int32_t) bbt.bars;
+			int32_t beat_adj = (int32_t) bbt.beats;
+			if ((int64_t) bbt.ticks >= (int64_t) Temporal::ticks_per_beat / 2) {
+				beat_adj += 1;
+			}
+			const Temporal::BBT_Argument snapped (bar_adj, beat_adj, 0);
+			start_sample = (int64_t) tm->sample_at (snapped);
+		} else if (snap_mode == "grid") {
+			/* Round to nearest 1/16 note = 1/4 of a beat in ticks. */
+			const int32_t subticks   = (int32_t) Temporal::ticks_per_beat / 4;
+			int32_t       bar_adj    = (int32_t) bbt.bars;
+			int32_t       beat_adj   = (int32_t) bbt.beats;
+			int32_t       ticks_adj  = (((int32_t) bbt.ticks + subticks / 2) / subticks) * subticks;
+			if (ticks_adj >= (int32_t) Temporal::ticks_per_beat) {
+				ticks_adj = 0;
+				beat_adj += 1;
+			}
+			const Temporal::BBT_Argument snapped (bar_adj, beat_adj, ticks_adj);
+			start_sample = (int64_t) tm->sample_at (snapped);
+		}
 	}
 
 	/* ----- Real import ----- */
