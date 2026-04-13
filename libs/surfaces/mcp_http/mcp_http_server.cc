@@ -5929,6 +5929,91 @@ audio_region_add_validation_error (const std::string& id,
 	return jsonrpc_result (id, out.str ());
 }
 
+/**
+ * Parse a tagged-union position {unit, value} → samplepos_t on the session
+ * timeline. Returns -1 on error (fills err_msg + err_code).
+ *
+ * For units "samples"|"seconds"|"beats", value is a number.
+ * For unit "bars+beats", value is an object {bar: int >= 1, beat: number >= 1.0}.
+ *
+ * Rejected on:
+ *  - unknown unit              → err_code = "INVALID_POSITION"
+ *  - negative numeric value    → err_code = "POSITION_BEFORE_ZERO"
+ *  - bar < 1 or beat < 1.0     → err_code = "INVALID_POSITION"
+ */
+static int64_t
+parse_position_union (ARDOUR::Session& session, const pt::ptree& node,
+                      std::string& err_code, std::string& err_msg)
+{
+	const std::string unit = node.get<std::string> ("unit", "");
+	if (unit.empty ()) {
+		err_code = "INVALID_POSITION";
+		err_msg  = "position.unit required";
+		return -1;
+	}
+
+	if (unit == "samples") {
+		const int64_t v = node.get<int64_t> ("value", -1);
+		if (v < 0) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "samples value must be >= 0";
+			return -1;
+		}
+		return v;
+	}
+
+	if (unit == "seconds") {
+		const double secs = node.get<double> ("value", -1.0);
+		if (secs < 0.0 || !std::isfinite (secs)) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "seconds value must be >= 0 and finite";
+			return -1;
+		}
+		return (int64_t) (secs * (double) session.sample_rate ());
+	}
+
+	if (unit == "beats") {
+		const double beats = node.get<double> ("value", -1.0);
+		if (beats < 0.0 || !std::isfinite (beats)) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "beats value must be >= 0 and finite";
+			return -1;
+		}
+		const Temporal::Beats b = Temporal::Beats::from_double (beats);
+		return (int64_t) Temporal::TempoMap::use ()->sample_at (b);
+	}
+
+	if (unit == "bars+beats") {
+		const auto value_opt = node.get_child_optional ("value");
+		if (!value_opt) {
+			err_code = "INVALID_POSITION";
+			err_msg  = "bars+beats value must be {bar, beat} object";
+			return -1;
+		}
+		const int    bar  = value_opt->get<int>    ("bar",  0);
+		const double beat = value_opt->get<double> ("beat", 0.0);
+		if (bar < 1 || beat < 1.0 || !std::isfinite (beat)) {
+			err_code = "INVALID_POSITION";
+			err_msg  = "bar >= 1 and beat >= 1.0 required (1-indexed musical time)";
+			return -1;
+		}
+		const int32_t whole_beats = (int32_t) beat;
+		int32_t       ticks       = (int32_t) std::llround ((beat - (double) whole_beats) * (double) Temporal::ticks_per_beat);
+		int32_t       bar_adj     = (int32_t) bar;
+		int32_t       beat_adj    = whole_beats;
+		if (ticks >= Temporal::ticks_per_beat) {
+			ticks = 0;
+			++beat_adj;
+		}
+		const Temporal::BBT_Argument bbt (bar_adj, beat_adj, ticks);
+		return (int64_t) Temporal::TempoMap::use ()->sample_at (bbt);
+	}
+
+	err_code = "INVALID_POSITION";
+	err_msg  = "unsupported unit: '" + unit + "' (expected samples, seconds, beats, or bars+beats)";
+	return -1;
+}
+
 static std::string
 handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
@@ -5985,18 +6070,30 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
-	/* Position parsing is deferred to a follow-up task; return a structured stub.
-	 * This stub proves the dispatcher wiring, path validation, and track lookup
-	 * all work end-to-end. dryRun is accepted and reflected in the response. */
+	/* Parse the tagged-union position */
+	const auto position_opt = root.get_child_optional ("params.arguments.position");
+	if (!position_opt) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS", "position required",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	std::string   pos_err_code, pos_err_msg;
+	const int64_t start_sample = parse_position_union (session, *position_opt, pos_err_code, pos_err_msg);
+	if (start_sample < 0) {
+		return audio_region_add_validation_error (id, pos_err_code, pos_err_msg,
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Still a stub — position is now parsed, but import / region creation pending */
 	std::ostringstream out;
-	out << "{\"content\":[{\"type\":\"text\",\"text\":\"stub\"}],"
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"stub: position parsed\"}],"
 	    << "\"structuredContent\":{"
 	    << "\"ok\":false,"
-	    << "\"failedAt\":\"validation\","
-	    << "\"error\":{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"audio_region_add v1 handler skeleton; import logic pending in subsequent tasks\"},"
+	    << "\"failedAt\":\"import\","
+	    << "\"error\":{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"position parsed, import stage pending\"},"
 	    << "\"trackId\":\"" << json_escape (track_id) << "\","
 	    << "\"uploadId\":\"" << json_escape (upload_id) << "\","
 	    << "\"decodedPath\":\"" << json_escape (resolved_str) << "\","
+	    << "\"startSample\":" << start_sample << ","
 	    << "\"dryRun\":" << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
