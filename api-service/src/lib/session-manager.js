@@ -296,6 +296,20 @@ export class SessionManager {
     return s?.uploads.get(uploadId)?.path || null;
   }
 
+  cacheDecodedPath(sessionId, uploadId, decodedPath) {
+    const s = this._sessions.get(sessionId);
+    if (!s) return false;
+    const u = s.uploads.get(uploadId);
+    if (!u) return false;
+    u.decodedPath = decodedPath;
+    return true;
+  }
+
+  getDecodedPath(sessionId, uploadId) {
+    const s = this._sessions.get(sessionId);
+    return s?.uploads.get(uploadId)?.decodedPath || null;
+  }
+
   getUploads(sessionId) {
     const s = this._sessions.get(sessionId);
     if (!s) return [];

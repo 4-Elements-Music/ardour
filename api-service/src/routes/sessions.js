@@ -74,8 +74,66 @@ export async function sessionRoutes(app) {
     if (s.status !== 'ready') {
       return reply.code(409).send({ error_code: 'NOT_READY', status: s.status });
     }
-    const { tool, params } = req.body || {};
+    let { tool, params } = req.body || {};
     if (!tool) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'tool required' });
+
+    if (tool === 'audio_region_add') {
+      // Client MUST NOT supply decodedPath — it's server-injected.
+      params = { ...(params || {}) };
+      delete params.decodedPath;
+
+      const reqId = params.requestId;
+      const cacheKey = reqId ? `${req.params.id}:${reqId}` : null;
+
+      if (cacheKey && app.requestCache && app.requestCache.has(cacheKey)) {
+        return reply.send(app.requestCache.get(cacheKey));
+      }
+
+      const uploadId = params.uploadId;
+      if (!uploadId) {
+        return reply.code(400).send({ error_code: 'MISSING_UPLOAD', message: 'uploadId required' });
+      }
+      const uploadPath = app.sessionManager.getUploadPath(req.params.id, uploadId);
+      if (!uploadPath) {
+        return reply.code(404).send({ error_code: 'MISSING_UPLOAD', message: `uploadId ${uploadId} not found` });
+      }
+
+      let decodedPath = app.sessionManager.getDecodedPath(req.params.id, uploadId);
+      if (!decodedPath) {
+        const { mkdir } = await import('fs/promises');
+        const { join: joinPath } = await import('path');
+        const decodedDir = joinPath(s.sessionDir, 'decoded');
+        await mkdir(decodedDir, { recursive: true });
+        decodedPath = joinPath(decodedDir, `${uploadId}.wav`);
+        try {
+          const { decodeToCanonicalWav } = await import('../lib/sandbox-decode.js');
+          await decodeToCanonicalWav({
+            input: uploadPath,
+            output: decodedPath,
+            validatorBin: app.config.audioValidatorBin,
+          });
+          app.sessionManager.cacheDecodedPath(req.params.id, uploadId, decodedPath);
+        } catch (e) {
+          return reply.code(400).send({
+            error_code: e.code || 'DECODE_FAILED',
+            message: e.message,
+            stderr: e.stderr ? String(e.stderr).slice(-1024) : undefined,
+          });
+        }
+      }
+
+      params.decodedPath = decodedPath;
+
+      try {
+        const result = await app.actionProxy.execute(s, tool, params, req.id);
+        const payload = result.result ?? result;
+        if (cacheKey && app.requestCache) app.requestCache.put(cacheKey, payload);
+        return payload;
+      } catch (e) {
+        return mapProxyError(reply, e);
+      }
+    }
+
     try {
       const result = await app.actionProxy.execute(s, tool, params, req.id);
       return result.result ?? result;

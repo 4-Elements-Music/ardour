@@ -47,4 +47,6 @@ export const config = {
   maxSessionExportBytes: parseInt(process.env.MAX_SESSION_EXPORT_BYTES || '2147483648', 10),
   ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
   ffprobeBin: process.env.FFPROBE_BIN || 'ffprobe',
+  audioValidatorBin: process.env.AUDIO_VALIDATOR_BIN
+    || resolve(ARDOUR_ROOT, 'build/tools/audio-validator/audio-validator'),
 };
