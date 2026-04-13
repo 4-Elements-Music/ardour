@@ -6067,9 +6067,16 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, decoded_path, dry_run);
 	}
 	const std::string session_root           = session.session_directory ().root_path ();
-	const std::string decoded_root           = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
-	const std::string decoded_root_with_sep  = decoded_root + "/";
-	const std::string resolved_str           = std::string (resolved);
+	const std::string decoded_root_raw       = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
+	/* Resolve the expected prefix through realpath too, so a platform like macOS
+	 * where /tmp is a symlink to /private/tmp doesn't cause the check to fail
+	 * when realpath() on the file returned the canonical /private/tmp form but
+	 * our raw prefix is still /tmp. */
+	char decoded_root_resolved[PATH_MAX];
+	const char* decoded_root_rp = realpath (decoded_root_raw.c_str (), decoded_root_resolved);
+	const std::string decoded_root          = decoded_root_rp ? std::string (decoded_root_rp) : decoded_root_raw;
+	const std::string decoded_root_with_sep = decoded_root + "/";
+	const std::string resolved_str          = std::string (resolved);
 	if (resolved_str.rfind (decoded_root_with_sep, 0) != 0) {
 		return audio_region_add_validation_error (id, "PATH_OUTSIDE_SESSION",
 		    std::string ("resolved=") + resolved_str + " expected_prefix=" + decoded_root_with_sep,
