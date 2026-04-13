@@ -309,6 +309,77 @@ async function renderParamForm(toolName) {
         opt.value = v; opt.textContent = v;
         input.appendChild(opt);
       }
+    } else if (spec.type === 'object' && (key === 'position' || key === 'timelineLength')) {
+      // Render tagged-union {unit, value} as a composite widget.
+      input = document.createElement('div');
+      input.className = 'composite-input';
+      input.style.display = 'flex';
+      input.style.gap = '6px';
+
+      const unitSel = document.createElement('select');
+      unitSel.style.flex = '0 0 auto';
+      unitSel.dataset.subkey = 'unit';
+      const blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '(unit)';
+      unitSel.appendChild(blank);
+      for (const u of ['samples', 'seconds', 'beats', 'bars+beats']) {
+        const o = document.createElement('option');
+        o.value = u; o.textContent = u;
+        unitSel.appendChild(o);
+      }
+      input.appendChild(unitSel);
+
+      // Value area — swaps shape based on unit selection.
+      const valueWrap = document.createElement('span');
+      valueWrap.style.flex = '1 1 auto';
+      valueWrap.style.display = 'flex';
+      valueWrap.style.gap = '4px';
+      input.appendChild(valueWrap);
+
+      const renderValueFor = (unit) => {
+        valueWrap.innerHTML = '';
+        if (unit === 'bars+beats') {
+          const bar = document.createElement('input');
+          bar.type = 'number'; bar.min = '1'; bar.placeholder = 'bar';
+          bar.dataset.subkey = 'bar';
+          const beat = document.createElement('input');
+          beat.type = 'number'; beat.step = '0.001'; beat.min = '1'; beat.placeholder = 'beat';
+          beat.dataset.subkey = 'beat';
+          valueWrap.appendChild(bar);
+          valueWrap.appendChild(beat);
+        } else {
+          const v = document.createElement('input');
+          v.type = 'number';
+          v.step = (unit === 'seconds' || unit === 'beats') ? 'any' : '1';
+          v.placeholder = unit ? `value (${unit})` : 'value';
+          v.dataset.subkey = 'value';
+          valueWrap.appendChild(v);
+        }
+      };
+      renderValueFor('');
+      unitSel.addEventListener('change', () => renderValueFor(unitSel.value));
+    } else if (spec.type === 'object' && key === 'repeat') {
+      // {count, strideBeats} composite.
+      input = document.createElement('div');
+      input.className = 'composite-input';
+      input.style.display = 'flex';
+      input.style.gap = '6px';
+
+      const count = document.createElement('input');
+      count.type = 'number'; count.min = '1'; count.max = '100'; count.placeholder = 'count (1-100)';
+      count.dataset.subkey = 'count';
+      const stride = document.createElement('input');
+      stride.type = 'number'; stride.step = 'any'; stride.min = '0'; stride.placeholder = 'strideBeats';
+      stride.dataset.subkey = 'strideBeats';
+      input.appendChild(count);
+      input.appendChild(stride);
+    } else if (spec.type === 'object') {
+      // Fallback for any other object-typed field: raw JSON textarea.
+      input = document.createElement('textarea');
+      input.rows = 2;
+      input.style.fontFamily = 'monospace';
+      input.style.fontSize = '11px';
+      input.placeholder = spec.description || 'JSON object';
     } else {
       input = document.createElement('input');
       if (spec.type === 'boolean') input.type = 'checkbox';
@@ -458,8 +529,36 @@ async function sendAction() {
   if (!state.sessionId) { alert('Select a session first'); return; }
   const toolName = document.getElementById('tool-select').value;
   const params = {};
-  for (const input of document.querySelectorAll('#param-form input, #param-form select')) {
+  // First: handle composite-input divs (position / timelineLength / repeat) — read their sub-inputs into structured objects.
+  for (const div of document.querySelectorAll('#param-form .composite-input')) {
+    const key = div.dataset.key;
+    const subs = div.querySelectorAll('[data-subkey]');
+    const obj = {};
+    for (const s of subs) {
+      const sk = s.dataset.subkey;
+      if (s.value === '') continue;
+      const n = parseFloat(s.value);
+      obj[sk] = Number.isNaN(n) ? s.value : n;
+    }
+    // Reshape for tagged-union unit/value where value may be nested {bar, beat}.
+    if ('unit' in obj && (key === 'position' || key === 'timelineLength')) {
+      if (obj.unit === 'bars+beats') {
+        params[key] = { unit: 'bars+beats', value: { bar: obj.bar, beat: obj.beat } };
+      } else if ('value' in obj) {
+        params[key] = { unit: obj.unit, value: obj.value };
+      }
+    } else if (key === 'repeat') {
+      // Only include if at least one field was filled
+      if (Object.keys(obj).length) params[key] = obj;
+    } else if (Object.keys(obj).length) {
+      params[key] = obj;
+    }
+  }
+
+  // Then: handle flat inputs, skipping any that live inside a composite-input container.
+  for (const input of document.querySelectorAll('#param-form input, #param-form select, #param-form textarea')) {
     if (input.disabled) continue;
+    if (input.closest('.composite-input')) continue;  // already handled above
     const key = input.dataset.key;
     const type = input.dataset.type;
     let val = input.value;
@@ -467,6 +566,10 @@ async function sendAction() {
     if (val === '') continue;
     if (type === 'integer') val = parseInt(val, 10);
     else if (type === 'number') val = parseFloat(val);
+    else if (type === 'object') {
+      try { val = JSON.parse(val); }
+      catch (e) { alert(`${key}: invalid JSON — ${e.message}`); return; }
+    }
     params[key] = val;
   }
   await api('POST', `/v1/sessions/${state.sessionId}/actions`, { tool: toolName, params });
