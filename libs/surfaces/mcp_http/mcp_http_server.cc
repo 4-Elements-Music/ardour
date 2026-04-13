@@ -6338,6 +6338,9 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		return roll_back_and_return ("REGION_CREATE_FAILED",
 		    "RegionFactory::create returned null (whole-file)");
 	}
+	cleanup_stack.push_back ([whole]() {
+		ARDOUR::RegionFactory::map_remove (whole);
+	});
 
 	PBD::PropertyList playlist_plist;
 	playlist_plist.add (ARDOUR::Properties::start,      Temporal::timepos_t (samplepos_t (src_offset)));
@@ -6351,6 +6354,9 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		return roll_back_and_return ("REGION_CREATE_FAILED",
 		    "RegionFactory::create returned null (playlist region)");
 	}
+	cleanup_stack.push_back ([region]() {
+		ARDOUR::RegionFactory::map_remove (region);
+	});
 
 	std::shared_ptr<ARDOUR::Playlist> pl = effective_track ? effective_track->playlist () : std::shared_ptr<ARDOUR::Playlist> ();
 	if (!pl) {
