@@ -188,3 +188,38 @@ describe('SessionManager uploads registry', () => {
     assert.deepEqual(sm.getUploads('nope'), []);
   });
 });
+
+describe('decodeOnce', () => {
+  it('dedupes concurrent calls with the same (sessionId, uploadId)', async () => {
+    const sm = new SessionManager({
+      config: { maxConcurrentSessions: 5, allowGui: false, sessionsDir: '/tmp', maxSessionUploadBytes: 1_000_000, luasessionBin:'/bin/true', mcpHostLua:'/dev/null', createSessionLua:'/dev/null', ardourGuiBin:'/bin/true', logRingBufferSize: 10 },
+      portPool: { allocate: () => 5000, release: () => {} },
+      spawner: () => ({ pid: 1, stdout: { on() {} }, stderr: { on() {} }, on() {}, once() {}, kill() {} }),
+      httpClient: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+    });
+    let runs = 0;
+    let resolveInner;
+    const factory = () => new Promise((resolve) => { resolveInner = () => { runs++; resolve('v'); }; });
+    const p1 = sm.decodeOnce('S', 'U', factory);
+    const p2 = sm.decodeOnce('S', 'U', factory);
+    resolveInner();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a, 'v');
+    assert.equal(b, 'v');
+    assert.equal(runs, 1, 'factory should run once for two concurrent callers');
+  });
+
+  it('clears in-flight entry after rejection so subsequent callers retry', async () => {
+    const sm = new SessionManager({
+      config: { maxConcurrentSessions: 5, allowGui: false, sessionsDir: '/tmp', maxSessionUploadBytes: 1_000_000, luasessionBin:'/bin/true', mcpHostLua:'/dev/null', createSessionLua:'/dev/null', ardourGuiBin:'/bin/true', logRingBufferSize: 10 },
+      portPool: { allocate: () => 5000, release: () => {} },
+      spawner: () => ({ pid: 1, stdout: { on() {} }, stderr: { on() {} }, on() {}, once() {}, kill() {} }),
+      httpClient: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+    });
+    let calls = 0;
+    const factory = async () => { calls++; throw new Error('boom'); };
+    await assert.rejects(sm.decodeOnce('S', 'U', factory));
+    await assert.rejects(sm.decodeOnce('S', 'U', factory));
+    assert.equal(calls, 2);
+  });
+});

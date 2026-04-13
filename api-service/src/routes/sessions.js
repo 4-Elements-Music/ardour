@@ -3,6 +3,10 @@
  *
  * Reads sessionManager, config from Fastify decorators set in server.js.
  */
+import { mkdir, stat, writeFile } from 'fs/promises';
+import { join as joinPath, resolve as resolvePath, relative } from 'path';
+import { decodeToCanonicalWav } from '../lib/sandbox-decode.js';
+
 export async function sessionRoutes(app) {
   // POST /v1/sessions — create session (202 Accepted)
   app.post('/sessions', async (req, reply) => {
@@ -100,19 +104,23 @@ export async function sessionRoutes(app) {
 
       let decodedPath = app.sessionManager.getDecodedPath(req.params.id, uploadId);
       if (!decodedPath) {
-        const { mkdir } = await import('fs/promises');
-        const { join: joinPath } = await import('path');
-        const decodedDir = joinPath(s.sessionDir, 'decoded');
-        await mkdir(decodedDir, { recursive: true });
-        decodedPath = joinPath(decodedDir, `${uploadId}.wav`);
         try {
-          const { decodeToCanonicalWav } = await import('../lib/sandbox-decode.js');
-          await decodeToCanonicalWav({
-            input: uploadPath,
-            output: decodedPath,
-            validatorBin: app.config.audioValidatorBin,
+          decodedPath = await app.sessionManager.decodeOnce(req.params.id, uploadId, async () => {
+            const decodedDir = joinPath(s.sessionDir, 'decoded');
+            await mkdir(decodedDir, { recursive: true });
+            const out = joinPath(decodedDir, `${uploadId}.wav`);
+            // Second-caller check: if a prior decode finished between our initial
+            // getDecodedPath and entering the factory, use its result.
+            const cached = app.sessionManager.getDecodedPath(req.params.id, uploadId);
+            if (cached) return cached;
+            await decodeToCanonicalWav({
+              input: uploadPath,
+              output: out,
+              validatorBin: app.config.audioValidatorBin,
+            });
+            app.sessionManager.cacheDecodedPath(req.params.id, uploadId, out);
+            return out;
           });
-          app.sessionManager.cacheDecodedPath(req.params.id, uploadId, decodedPath);
         } catch (e) {
           return reply.code(400).send({
             error_code: e.code || 'DECODE_FAILED',
@@ -194,8 +202,6 @@ export async function sessionRoutes(app) {
       return reply.code(400).send({ error_code: 'INVALID_FILE_TYPE', error: 'extension not allowed' });
     }
 
-    const { mkdir, stat, writeFile } = await import('fs/promises');
-    const { resolve: resolvePath, relative } = await import('path');
     const uploadsDir = resolvePath(s.sessionDir, 'uploads');
     await mkdir(uploadsDir, { recursive: true });
     const destPath = resolvePath(uploadsDir, sanitized);

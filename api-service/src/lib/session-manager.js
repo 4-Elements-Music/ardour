@@ -29,6 +29,28 @@ export class SessionManager {
     this._spawner = spawner;
     this._httpClient = httpClient;
     this._sessions = new Map(); // id -> session object
+    this._decodeInFlight = new Map();
+  }
+
+  /**
+   * Dedupe concurrent first-decode of the same upload on a single session.
+   * Callers pass a factory fn that does the actual decode work; if another
+   * caller is already decoding the same (sessionId, uploadId), they all await
+   * the same promise. The in-flight entry is cleared after resolve OR reject.
+   */
+  decodeOnce (sessionId, uploadId, factory) {
+    const key = `${sessionId}:${uploadId}`;
+    const existing = this._decodeInFlight.get(key);
+    if (existing) return existing;
+    const p = (async () => {
+      try {
+        return await factory();
+      } finally {
+        this._decodeInFlight.delete(key);
+      }
+    })();
+    this._decodeInFlight.set(key, p);
+    return p;
   }
 
   _now() { return this._clock ? this._clock.now() : Date.now(); }
