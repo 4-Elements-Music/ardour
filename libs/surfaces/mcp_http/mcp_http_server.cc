@@ -53,6 +53,9 @@
 #include "ardour/amp.h"
 #include "ardour/audio_track.h"
 #include "ardour/audioregion.h"
+#include "ardour/audiofilesource.h"
+#include "ardour/audiosource.h"
+#include "ardour/import_status.h"
 #include "ardour/dB.h"
 #include "ardour/internal_send.h"
 #include "ardour/location.h"
@@ -6083,18 +6086,108 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
-	/* Still a stub — position is now parsed, but import / region creation pending */
+	/* ----- Real import ----- */
+	ARDOUR::ImportStatus status;
+	status.current                 = 1;
+	status.total                   = 1;
+	status.freeze                  = false;
+	status.done                    = false;
+	status.cancel                  = false;
+	status.replace_existing_source = false;
+	status.split_midi_channels     = false;
+	status.import_markers          = false;
+	status.quality                 = ARDOUR::SrcBest;
+	status.paths.push_back (resolved_str);
+
+	session.import_files (status);
+	if (status.cancel || status.sources.empty ()) {
+		return audio_region_add_validation_error (id, "IMPORT_FAILED",
+		    "session.import_files failed or cancelled",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	std::shared_ptr<ARDOUR::AudioSource> asrc =
+	    std::dynamic_pointer_cast<ARDOUR::AudioSource> (status.sources.front ());
+	if (!asrc) {
+		return audio_region_add_validation_error (id, "IMPORT_FAILED",
+		    "imported source is not AudioSource",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	const ARDOUR::samplecnt_t source_length = asrc->length ().samples ();
+	std::shared_ptr<ARDOUR::AudioFileSource> afs =
+	    std::dynamic_pointer_cast<ARDOUR::AudioFileSource> (asrc);
+	const std::string session_file_path = afs ? afs->path () : std::string ();
+	ARDOUR::SourceList sources;
+	for (auto& s : status.sources) {
+		sources.push_back (s);
+	}
+
+	/* ----- Build whole-file region, then a playlist-usable region ----- */
+	PBD::PropertyList whole_plist;
+	whole_plist.add (ARDOUR::Properties::start,      Temporal::timecnt_t (Temporal::AudioTime));
+	whole_plist.add (ARDOUR::Properties::length,     asrc->length ());
+	whole_plist.add (ARDOUR::Properties::name,       std::string (PBD::basename_nosuffix (resolved_str)));
+	whole_plist.add (ARDOUR::Properties::whole_file, true);
+	whole_plist.add (ARDOUR::Properties::external,   false);
+
+	std::shared_ptr<ARDOUR::Region> whole = ARDOUR::RegionFactory::create (sources, whole_plist);
+	if (!whole) {
+		return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
+		    "RegionFactory::create returned null (whole-file)",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	PBD::PropertyList playlist_plist;
+	playlist_plist.add (ARDOUR::Properties::start,      Temporal::timecnt_t (Temporal::AudioTime));
+	playlist_plist.add (ARDOUR::Properties::length,     asrc->length ());
+	playlist_plist.add (ARDOUR::Properties::name,       std::string (PBD::basename_nosuffix (resolved_str)));
+	playlist_plist.add (ARDOUR::Properties::whole_file, false);
+	playlist_plist.add (ARDOUR::Properties::external,   false);
+
+	std::shared_ptr<ARDOUR::Region> region = ARDOUR::RegionFactory::create (whole, playlist_plist);
+	if (!region) {
+		return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
+		    "RegionFactory::create returned null (playlist region)",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	std::shared_ptr<ARDOUR::AudioTrack> audio_track =
+	    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
+	std::shared_ptr<ARDOUR::Playlist> pl = audio_track ? audio_track->playlist () : std::shared_ptr<ARDOUR::Playlist> ();
+	if (!pl) {
+		return audio_region_add_validation_error (id, "REGION_CREATE_FAILED",
+		    "no playlist on track",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* ----- Commit the insert as an undoable command ----- */
+	const Temporal::timepos_t start_pos = Temporal::timepos_t (samplepos_t (start_sample));
+	session.begin_reversible_command ("audio_region_add");
+	pl->clear_changes ();
+	pl->clear_owned_changes ();
+	region->set_position (start_pos);
+	pl->add_region (region, start_pos, 1.0, false);
+	pl->rdiff_and_add_command (&session);
+	session.commit_reversible_command ();
+
+	/* ----- Success response ----- */
 	std::ostringstream out;
-	out << "{\"content\":[{\"type\":\"text\",\"text\":\"stub: position parsed\"}],"
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"region added\"}],"
 	    << "\"structuredContent\":{"
-	    << "\"ok\":false,"
-	    << "\"failedAt\":\"import\","
-	    << "\"error\":{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"position parsed, import stage pending\"},"
-	    << "\"trackId\":\"" << json_escape (track_id) << "\","
-	    << "\"uploadId\":\"" << json_escape (upload_id) << "\","
-	    << "\"decodedPath\":\"" << json_escape (resolved_str) << "\","
-	    << "\"startSample\":" << start_sample << ","
-	    << "\"dryRun\":" << (dry_run ? "true" : "false")
+	    << "\"ok\":true,"
+	    << "\"regionId\":\""          << json_escape (region->id ().to_s ()) << "\","
+	    << "\"trackId\":\""           << json_escape (track_id)              << "\","
+	    << "\"trackCreated\":false,"
+	    << "\"originalTrackId\":\""   << json_escape (track_id)              << "\","
+	    << "\"startSample\":"         << start_sample                        << ","
+	    << "\"timelineLengthSamples\":" << source_length                     << ","
+	    << "\"sourceId\":\""          << json_escape (asrc->id ().to_s ())   << "\","
+	    << "\"sourceChannels\":"      << sources.size ()                     << ","
+	    << "\"sourceLengthSamples\":" << source_length                       << ","
+	    << "\"fileCopied\":true,"
+	    << "\"sessionFilePath\":\""   << json_escape (session_file_path)     << "\","
+	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
 }
