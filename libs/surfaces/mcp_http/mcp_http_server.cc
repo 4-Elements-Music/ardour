@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <memory>
@@ -36,6 +37,10 @@
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+
+#include <sndfile.h>
+
+#include <glibmm/miscutils.h>
 
 #include "pbd/basename.h"
 #include "pbd/controllable.h"
@@ -51,6 +56,9 @@
 #include "ardour/amp.h"
 #include "ardour/audio_track.h"
 #include "ardour/audioregion.h"
+#include "ardour/audiofilesource.h"
+#include "ardour/audiosource.h"
+#include "ardour/import_status.h"
 #include "ardour/dB.h"
 #include "ardour/internal_send.h"
 #include "ardour/location.h"
@@ -70,6 +78,7 @@
 #include "ardour/route.h"
 #include "ardour/selection.h"
 #include "ardour/session.h"
+#include "ardour/session_directory.h"
 #include "ardour/session_event.h"
 #include "ardour/source.h"
 #include "ardour/stripable.h"
@@ -174,7 +183,8 @@ canonical_tool_name (std::string tool_name)
 		"region",
 		"plugin",
 		"midi_region",
-		"midi_note"
+		"midi_note",
+		"audio_region"
 	};
 
 	for (size_t i = 0; i < (sizeof (known_groups) / sizeof (known_groups[0])); ++i) {
@@ -5903,6 +5913,929 @@ dispatch_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop,
 }
 
 static std::string
+audio_region_add_validation_error (const std::string& id,
+                                   const std::string& code,
+                                   const std::string& message,
+                                   const std::string& track_id,
+                                   const std::string& upload_id,
+                                   const std::string& decoded_path,
+                                   bool               dry_run)
+{
+	std::ostringstream out;
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"" << json_escape (message) << "\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":false,"
+	    << "\"failedAt\":\"validation\","
+	    << "\"error\":{\"code\":\"" << code << "\",\"message\":\"" << json_escape (message) << "\"},"
+	    << "\"trackId\":\"" << json_escape (track_id) << "\","
+	    << "\"uploadId\":\"" << json_escape (upload_id) << "\","
+	    << "\"decodedPath\":\"" << json_escape (decoded_path) << "\","
+	    << "\"dryRun\":" << (dry_run ? "true" : "false")
+	    << "}}";
+	return jsonrpc_result (id, out.str ());
+}
+
+/**
+ * Parse a tagged-union position {unit, value} → samplepos_t on the session
+ * timeline. Returns -1 on error (fills err_msg + err_code).
+ *
+ * For units "samples"|"seconds"|"beats", value is a number.
+ * For unit "bars+beats", value is an object {bar: int >= 1, beat: number >= 1.0}.
+ *
+ * Rejected on:
+ *  - unknown unit              → err_code = "INVALID_POSITION"
+ *  - negative numeric value    → err_code = "POSITION_BEFORE_ZERO"
+ *  - bar < 1 or beat < 1.0     → err_code = "INVALID_POSITION"
+ */
+static int64_t
+parse_position_union (ARDOUR::Session& session, const pt::ptree& node,
+                      std::string& err_code, std::string& err_msg)
+{
+	const std::string unit = node.get<std::string> ("unit", "");
+	if (unit.empty ()) {
+		err_code = "INVALID_POSITION";
+		err_msg  = "position.unit required";
+		return -1;
+	}
+
+	if (unit == "samples") {
+		const int64_t v = node.get<int64_t> ("value", -1);
+		if (v < 0) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "samples value must be >= 0";
+			return -1;
+		}
+		return v;
+	}
+
+	if (unit == "seconds") {
+		const double secs = node.get<double> ("value", -1.0);
+		if (secs < 0.0 || !std::isfinite (secs)) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "seconds value must be >= 0 and finite";
+			return -1;
+		}
+		return (int64_t) (secs * (double) session.sample_rate ());
+	}
+
+	if (unit == "beats") {
+		const double beats = node.get<double> ("value", -1.0);
+		if (beats < 0.0 || !std::isfinite (beats)) {
+			err_code = "POSITION_BEFORE_ZERO";
+			err_msg  = "beats value must be >= 0 and finite";
+			return -1;
+		}
+		const Temporal::Beats b = Temporal::Beats::from_double (beats);
+		return (int64_t) Temporal::TempoMap::use ()->sample_at (b);
+	}
+
+	if (unit == "bars+beats") {
+		const auto value_opt = node.get_child_optional ("value");
+		if (!value_opt) {
+			err_code = "INVALID_POSITION";
+			err_msg  = "bars+beats value must be {bar, beat} object";
+			return -1;
+		}
+		const int    bar  = value_opt->get<int>    ("bar",  0);
+		const double beat = value_opt->get<double> ("beat", 0.0);
+		if (bar < 1 || beat < 1.0 || !std::isfinite (beat)) {
+			err_code = "INVALID_POSITION";
+			err_msg  = "bar >= 1 and beat >= 1.0 required (1-indexed musical time)";
+			return -1;
+		}
+		const int32_t whole_beats = (int32_t) beat;
+		int32_t       ticks       = (int32_t) std::llround ((beat - (double) whole_beats) * (double) Temporal::ticks_per_beat);
+		int32_t       bar_adj     = (int32_t) bar;
+		int32_t       beat_adj    = whole_beats;
+		if (ticks >= Temporal::ticks_per_beat) {
+			ticks = 0;
+			++beat_adj;
+		}
+		const Temporal::BBT_Argument bbt (bar_adj, beat_adj, ticks);
+		return (int64_t) Temporal::TempoMap::use ()->sample_at (bbt);
+	}
+
+	err_code = "INVALID_POSITION";
+	err_msg  = "unsupported unit: '" + unit + "' (expected samples, seconds, beats, or bars+beats)";
+	return -1;
+}
+
+/* Per-process mutex — serializes concurrent audio_region_add calls on the
+ * same Ardour session. One Ardour process == one session in the current
+ * deployment model, so a file-scope static is equivalent to per-session. */
+static std::mutex g_audio_region_add_mutex;
+
+static std::string
+handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
+{
+	/* Serialize concurrent audio_region_add invocations on this session. The handler
+	 * mutates session state (begin_reversible_command, playlist->add_region, etc.)
+	 * which is not safe for concurrent access even on a single session; plus repeat/
+	 * overlap/edge-crossfade blocks read then mutate the playlist's region list,
+	 * which a racing call could corrupt. One process == one session in this
+	 * deployment, so a file-scope static mutex is per-session. */
+	std::lock_guard<std::mutex> ar_add_lock (g_audio_region_add_mutex);
+
+	/* Required inputs */
+	const std::string track_id     = root.get<std::string> ("params.arguments.trackId",     "");
+	const std::string upload_id    = root.get<std::string> ("params.arguments.uploadId",    "");
+	const std::string decoded_path = root.get<std::string> ("params.arguments.decodedPath", "");
+	const bool        dry_run      = root.get<bool>        ("params.arguments.dryRun",      false);
+
+	if (track_id.empty ()) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS", "trackId required",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+	if (upload_id.empty ()) {
+		return audio_region_add_validation_error (id, "MISSING_UPLOAD", "uploadId required",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+	if (decoded_path.empty ()) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "decodedPath required (server-injected after upload validation; clients must not call directly)",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+
+	/* Path-injection defense: the decoded file MUST live under <sessionDir>/decoded/.
+	 * realpath() + a prefix check that includes the trailing separator together
+	 * cover traversal fully; no substring '..' check is needed and it would
+	 * reject legitimate filenames like foo..wav. */
+	char resolved[PATH_MAX];
+	if (!realpath (decoded_path.c_str (), resolved)) {
+		return audio_region_add_validation_error (id, "UNREADABLE_FILE",
+		    "decodedPath could not be resolved",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+	const std::string session_root           = session.session_directory ().root_path ();
+	const std::string decoded_root           = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
+	const std::string decoded_root_with_sep  = decoded_root + "/";
+	const std::string resolved_str           = std::string (resolved);
+	if (resolved_str.rfind (decoded_root_with_sep, 0) != 0) {
+		return audio_region_add_validation_error (id, "PATH_OUTSIDE_SESSION",
+		    std::string ("resolved=") + resolved_str + " expected_prefix=" + decoded_root_with_sep,
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* ---- Atomic rollback infrastructure ----
+	 * Each non-undoable mutation (import_files success, new_audio_track success)
+	 * pushes a cleanup closure. On any failure return AFTER a closure has been
+	 * pushed, roll_back_and_return runs closures in reverse order before
+	 * emitting the validation error. On success, the stack is cleared just
+	 * before building the response — Ardour's reversible_command envelope
+	 * tracks all region-level edits from that point. */
+	std::vector<std::function<void()>> cleanup_stack;
+	auto roll_back_and_return = [&](const std::string& code, const std::string& msg) -> std::string {
+		for (auto it = cleanup_stack.rbegin (); it != cleanup_stack.rend (); ++it) {
+			try { (*it) (); } catch (...) { /* swallow rollback errors; we're already failing */ }
+		}
+		return audio_region_add_validation_error (id, code, msg, track_id, upload_id, resolved_str, dry_run);
+	};
+
+	/* Resolve track */
+	std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (session, track_id);
+	if (!route) {
+		return audio_region_add_validation_error (id, "ROUTE_NOT_FOUND",
+		    "track not found for trackId",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	if (!std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route)) {
+		return audio_region_add_validation_error (id, "NOT_AUDIO_TRACK",
+		    "trackId resolves to a route that is not an AudioTrack",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Parse the tagged-union position */
+	const auto position_opt = root.get_child_optional ("params.arguments.position");
+	if (!position_opt) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS", "position required",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	std::string pos_err_code, pos_err_msg;
+	int64_t     start_sample = parse_position_union (session, *position_opt, pos_err_code, pos_err_msg);
+	if (start_sample < 0) {
+		return audio_region_add_validation_error (id, pos_err_code, pos_err_msg,
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Snap: optional post-parse rounding of start_sample to nearest bar/beat/grid line. */
+	const std::string snap_mode = root.get<std::string> ("params.arguments.snap", "none");
+	if (snap_mode != "none") {
+		if (snap_mode != "bar" && snap_mode != "beat" && snap_mode != "grid") {
+			return audio_region_add_validation_error (id, "INVALID_PARAMS",
+			    "snap must be one of: none | bar | beat | grid (got '" + snap_mode + "')",
+			    track_id, upload_id, resolved_str, dry_run);
+		}
+
+		Temporal::TempoMap::SharedPtr tm = Temporal::TempoMap::use ();
+		const Temporal::timepos_t     original_pos {samplepos_t (start_sample)};
+		const Temporal::BBT_Argument  bbt = tm->bbt_at (original_pos);
+
+		if (snap_mode == "bar") {
+			/* Round to nearest bar — compare distance to bar floor and ceiling. */
+			const Temporal::BBT_Argument floor_bbt ((int32_t) bbt.bars,     1, 0);
+			const Temporal::BBT_Argument ceil_bbt  ((int32_t) bbt.bars + 1, 1, 0);
+			const samplepos_t floor_sample = tm->sample_at (floor_bbt);
+			const samplepos_t ceil_sample  = tm->sample_at (ceil_bbt);
+			start_sample = ((start_sample - floor_sample) <= (ceil_sample - start_sample))
+			                 ? (int64_t) floor_sample
+			                 : (int64_t) ceil_sample;
+		} else if (snap_mode == "beat") {
+			/* Round to nearest beat — ticks portion rounded to 0 or carry to next beat. */
+			int32_t bar_adj  = (int32_t) bbt.bars;
+			int32_t beat_adj = (int32_t) bbt.beats;
+			if ((int64_t) bbt.ticks >= (int64_t) Temporal::ticks_per_beat / 2) {
+				beat_adj += 1;
+			}
+			const Temporal::BBT_Argument snapped (bar_adj, beat_adj, 0);
+			start_sample = (int64_t) tm->sample_at (snapped);
+		} else if (snap_mode == "grid") {
+			/* Round to nearest 1/16 note = 1/4 of a beat in ticks. */
+			const int32_t subticks   = (int32_t) Temporal::ticks_per_beat / 4;
+			int32_t       bar_adj    = (int32_t) bbt.bars;
+			int32_t       beat_adj   = (int32_t) bbt.beats;
+			int32_t       ticks_adj  = (((int32_t) bbt.ticks + subticks / 2) / subticks) * subticks;
+			if (ticks_adj >= (int32_t) Temporal::ticks_per_beat) {
+				ticks_adj = 0;
+				beat_adj += 1;
+			}
+			const Temporal::BBT_Argument snapped (bar_adj, beat_adj, ticks_adj);
+			start_sample = (int64_t) tm->sample_at (snapped);
+		}
+	}
+
+	/* ----- dryRun early-exit: full read-only validation, no session mutation. -----
+	 *
+	 * When dryRun=true we skip session.save_state/import_files/new_audio_track/
+	 * RegionFactory::create/add_region/begin_reversible_command entirely. The file
+	 * is peeked via libsndfile so we can run sourceOffsetSamples / timelineLength /
+	 * channel-mismatch validation and project the would-be-effective track.
+	 *
+	 * v1 scope: overlap/edge arrays are left empty (a deep projection against the
+	 * actual playlist requires a non-auto-track code path — deferred).
+	 */
+	if (dry_run) {
+		/* Peek file metadata via libsndfile without importing. */
+		SF_INFO sfinfo = {};
+		SNDFILE* sf = sf_open (resolved_str.c_str (), SFM_READ, &sfinfo);
+		if (!sf) {
+			return roll_back_and_return ("UNREADABLE_FILE",
+			    std::string ("libsndfile cannot open decoded file: ") + sf_strerror (NULL));
+		}
+		const uint32_t    dry_src_channels = (uint32_t) sfinfo.channels;
+		const ARDOUR::samplecnt_t dry_src_length = (ARDOUR::samplecnt_t) sfinfo.frames;
+		const int         dry_src_sr       = sfinfo.samplerate;
+		sf_close (sf);
+
+		/* Parse sourceOffsetSamples + timelineLength against the peeked file length
+		 * (mirror of the post-import validation block). */
+		const int64_t src_offset = root.get<int64_t> ("params.arguments.sourceOffsetSamples", 0);
+		if (src_offset < 0 || src_offset >= (int64_t) dry_src_length) {
+			return roll_back_and_return ("INVALID_POSITION",
+			    "sourceOffsetSamples out of range (0.." + std::to_string (dry_src_length - 1) + ")");
+		}
+
+		int64_t    timeline_length = 0;
+		bool       tl_set          = false;
+		const auto tl_opt = root.get_child_optional ("params.arguments.timelineLength");
+		if (tl_opt) {
+			const std::string unit = tl_opt->get<std::string> ("unit", "");
+			if (unit == "samples") {
+				timeline_length = tl_opt->get<int64_t> ("value", -1);
+				if (timeline_length <= 0) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength.value must be > 0 (samples)");
+				}
+				tl_set = true;
+			} else if (unit == "seconds") {
+				const double secs = tl_opt->get<double> ("value", -1.0);
+				if (secs <= 0.0 || !std::isfinite (secs)) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength.value must be > 0 and finite (seconds)");
+				}
+				timeline_length = (int64_t) (secs * (double) session.sample_rate ());
+				if (timeline_length == 0) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength in seconds rounds to 0 samples; use a larger value");
+				}
+				tl_set = true;
+			} else if (unit == "beats" || unit == "bars+beats") {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength with unit '" + unit + "' not supported in v1 (use samples or seconds)");
+			} else {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength.unit required (samples or seconds in v1)");
+			}
+		}
+		if (!tl_set) {
+			timeline_length = (int64_t) dry_src_length - src_offset;
+		}
+		if (src_offset + timeline_length > (int64_t) dry_src_length) {
+			return roll_back_and_return ("INSUFFICIENT_SOURCE",
+			    "sourceOffsetSamples (" + std::to_string (src_offset)
+			        + ") + timelineLength (" + std::to_string (timeline_length)
+			        + ") exceeds sourceLengthSamples (" + std::to_string (dry_src_length) + ")");
+		}
+
+		/* Channel mismatch projection — without actually creating a track. */
+		std::shared_ptr<ARDOUR::AudioTrack> at =
+		    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
+		const uint32_t track_channels = at->n_inputs ().n_audio ();
+		bool        dry_track_created = false;
+		std::string dry_new_track_name;
+
+		if (dry_src_channels != track_channels) {
+			const std::string policy = root.get<std::string> ("params.arguments.channelMismatch", "error");
+			const bool        allow  = root.get<bool>        ("params.arguments.allowTrackCreation", false);
+			if (policy == "error") {
+				return roll_back_and_return ("CHANNEL_MISMATCH",
+				    "(dryRun) file has " + std::to_string (dry_src_channels) + " ch, track has "
+				      + std::to_string (track_channels) + "; set channelMismatch='auto-track' + allowTrackCreation=true or 'truncate'");
+			}
+			if (policy == "auto-track") {
+				if (!allow) {
+					return roll_back_and_return ("CHANNEL_MISMATCH",
+					    "(dryRun) channelMismatch='auto-track' requires allowTrackCreation=true");
+				}
+				dry_track_created  = true;
+				dry_new_track_name = at->name () + "-" + std::to_string (dry_src_channels) + "ch";
+			} else if (policy == "truncate") {
+				/* no-op: projection continues */
+			} else {
+				return roll_back_and_return ("INVALID_PARAMS",
+				    "channelMismatch must be one of: error | truncate | auto-track (got '" + policy + "')");
+			}
+		}
+
+		/* Emit projected-success response. */
+		std::ostringstream out;
+		out << "{\"content\":[{\"type\":\"text\",\"text\":\"dry run — no mutation performed\"}],"
+		    << "\"structuredContent\":{"
+		    << "\"ok\":true,"
+		    << "\"dryRun\":true,"
+		    << "\"regionId\":\"\","
+		    << "\"trackId\":\""           << json_escape (dry_track_created ? std::string ("(dryRun)") : track_id) << "\","
+		    << "\"trackCreated\":"        << (dry_track_created ? "true" : "false") << ","
+		    << "\"originalTrackId\":\""   << json_escape (track_id) << "\","
+		    << "\"newTrackId\":"          << (dry_track_created ? "\"(dryRun)\"" : "null") << ","
+		    << "\"newTrackName\":"        << (dry_track_created ? std::string ("\"") + json_escape (dry_new_track_name) + "\"" : std::string ("null")) << ","
+		    << "\"startSample\":"         << start_sample << ","
+		    << "\"timelineLengthSamples\":" << timeline_length << ","
+		    << "\"sourceChannels\":"      << dry_src_channels << ","
+		    << "\"sourceSampleRate\":"    << dry_src_sr << ","
+		    << "\"sourceLengthSamples\":" << dry_src_length << ","
+		    << "\"overlappingRegionsAffected\":[],"
+		    << "\"edgeCrossfadesCreated\":[],"
+		    << "\"repeatedRegionIds\":[]"
+		    << "}}";
+		return jsonrpc_result (id, out.str ());
+	}
+
+	/* ----- Real import ----- */
+	ARDOUR::ImportStatus status;
+	status.current                 = 1;
+	status.total                   = 1;
+	status.freeze                  = false;
+	status.done                    = false;
+	status.cancel                  = false;
+	status.replace_existing_source = false;
+	status.split_midi_channels     = false;
+	status.import_markers          = false;
+	status.quality                 = ARDOUR::SrcBest;
+	status.paths.push_back (resolved_str);
+
+	/* Safety-net autosave: if the import wedges the process (libsndfile bug,
+	 * OOM, etc.), the user recovers to pre-call state. Fast — writes session XML,
+	 * does not flush audio data. */
+	session.save_state ("audio_region_add.autosave");
+	session.import_files (status);
+	if (status.cancel || status.sources.empty ()) {
+		/* Import itself failed — nothing to roll back. */
+		return audio_region_add_validation_error (id, "IMPORT_FAILED",
+		    "session.import_files failed or cancelled",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	/* Register cleanup: undo the file import if we bail before commit_reversible_command.
+	 * Pushed BEFORE the AudioSource cast check so cast-failure also triggers rollback. */
+	{
+		ARDOUR::SourceList imported = status.sources;  /* capture by value */
+		cleanup_stack.push_back ([&session, imported]() mutable {
+			for (auto& src : imported) {
+				if (src) session.remove_source (src);
+			}
+		});
+	}
+
+	std::shared_ptr<ARDOUR::AudioSource> asrc =
+	    std::dynamic_pointer_cast<ARDOUR::AudioSource> (status.sources.front ());
+	if (!asrc) {
+		return roll_back_and_return ("IMPORT_FAILED",
+		    "imported source is not AudioSource");
+	}
+
+	const ARDOUR::samplecnt_t source_length = asrc->length ().samples ();
+
+	const uint32_t src_channels = (uint32_t) status.sources.size ();
+
+	std::shared_ptr<ARDOUR::AudioTrack> audio_track =
+	    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
+	/* route was already validated as AudioTrack earlier; the cast must succeed. */
+
+	const uint32_t track_channels = audio_track->n_inputs ().n_audio ();
+
+	bool         track_created   = false;
+	std::string  new_track_id;
+	std::string  new_track_name;
+	std::shared_ptr<ARDOUR::AudioTrack> effective_track = audio_track;
+
+	if (src_channels != track_channels) {
+		const std::string policy = root.get<std::string> ("params.arguments.channelMismatch", "error");
+		const bool        allow  = root.get<bool>        ("params.arguments.allowTrackCreation", false);
+
+		if (policy == "error") {
+			return roll_back_and_return ("CHANNEL_MISMATCH",
+			    "file has " + std::to_string (src_channels) + " channel(s), track has "
+			      + std::to_string (track_channels) + " audio input(s); set channelMismatch='auto-track'"
+			      " with allowTrackCreation=true, or 'truncate' to accept mix/drop");
+		} else if (policy == "auto-track") {
+			if (!allow) {
+				return roll_back_and_return ("CHANNEL_MISMATCH",
+				    "channelMismatch='auto-track' requires allowTrackCreation=true as safety gate");
+			}
+			const std::string new_name = audio_track->name () + "-" + std::to_string (src_channels) + "ch";
+			std::list<std::shared_ptr<ARDOUR::AudioTrack>> created = session.new_audio_track (
+			    (int) src_channels, (int) src_channels,
+			    std::shared_ptr<ARDOUR::RouteGroup> (),
+			    1, /* how_many */
+			    new_name,
+			    audio_track->presentation_info ().order () + 1,
+			    ARDOUR::Normal,
+			    true,  /* input_auto_connect */
+			    false  /* trigger_visibility */);
+			if (created.empty () || !created.front ()) {
+				return roll_back_and_return ("REGION_CREATE_FAILED",
+				    "failed to auto-create a " + std::to_string (src_channels) + "-channel track");
+			}
+			effective_track = created.front ();
+			track_created   = true;
+			new_track_id    = effective_track->id ().to_s ();
+			new_track_name  = effective_track->name ();
+			/* Register cleanup: destroy the auto-created track if we bail before commit. */
+			cleanup_stack.push_back ([&session, et = effective_track]() mutable {
+				if (et) session.remove_route (et);
+			});
+		} else if (policy == "truncate") {
+			/* Fall through — Ardour's Playlist::add_region + RegionFactory::create
+			 * reconcile width mismatches by dropping or zero-filling extra source
+			 * channels during playback; no explicit handling needed here. */
+		} else {
+			return roll_back_and_return ("INVALID_PARAMS",
+			    "channelMismatch must be one of: error | truncate | auto-track (got '" + policy + "')");
+		}
+	}
+
+	std::shared_ptr<ARDOUR::AudioFileSource> afs =
+	    std::dynamic_pointer_cast<ARDOUR::AudioFileSource> (asrc);
+	const std::string session_file_path = afs ? afs->path () : std::string ();
+	ARDOUR::SourceList sources;
+	for (auto& s : status.sources) {
+		sources.push_back (s);
+	}
+
+	/* sourceOffsetSamples — offset into the source file (pre-stretch frames) */
+	const int64_t src_offset = root.get<int64_t> ("params.arguments.sourceOffsetSamples", 0);
+	if (src_offset < 0 || src_offset >= (int64_t) source_length) {
+		return roll_back_and_return ("INVALID_POSITION",
+		    "sourceOffsetSamples out of range (0.." + std::to_string (source_length - 1) + ")");
+	}
+
+	/* timelineLength — optional; defaults to rest-of-source from offset.
+	 * Uses the same tagged-union parser as position but note the distinction:
+	 * for length the units "beats" and "bars+beats" mean "beat-count duration"
+	 * not "timeline position". For v1 we reuse parse_position_union's samples/seconds
+	 * branches since those are straightforward durations; beats/bars+beats length is
+	 * deferred (use samples/seconds for v1). If caller passes beats/bars+beats for
+	 * timelineLength, reject with INVALID_POSITION pointing at the limitation. */
+	int64_t timeline_length = 0;
+	bool    tl_set          = false;
+	const auto tl_opt = root.get_child_optional ("params.arguments.timelineLength");
+	if (tl_opt) {
+		const std::string unit = tl_opt->get<std::string> ("unit", "");
+		if (unit == "samples") {
+			timeline_length = tl_opt->get<int64_t> ("value", -1);
+			if (timeline_length <= 0) {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength.value must be > 0 (samples)");
+			}
+			tl_set = true;
+		} else if (unit == "seconds") {
+			const double secs = tl_opt->get<double> ("value", -1.0);
+			if (secs <= 0.0 || !std::isfinite (secs)) {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength.value must be > 0 and finite (seconds)");
+			}
+			timeline_length = (int64_t) (secs * (double) session.sample_rate ());
+			if (timeline_length == 0) {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength in seconds rounds to 0 samples; use a larger value");
+			}
+			tl_set = true;
+		} else if (unit == "beats" || unit == "bars+beats") {
+			return roll_back_and_return ("INVALID_POSITION",
+			    "timelineLength with unit '" + unit + "' not supported in v1 (use samples or seconds)");
+		} else {
+			return roll_back_and_return ("INVALID_POSITION",
+			    "timelineLength.unit required (samples or seconds in v1)");
+		}
+	}
+	if (!tl_set) {
+		timeline_length = source_length - src_offset;
+	}
+	if (src_offset + timeline_length > (int64_t) source_length) {
+		return roll_back_and_return ("INSUFFICIENT_SOURCE",
+		    "sourceOffsetSamples (" + std::to_string (src_offset)
+		        + ") + timelineLength (" + std::to_string (timeline_length)
+		        + ") exceeds sourceLengthSamples (" + std::to_string (source_length) + ")");
+	}
+
+	/* ----- Build whole-file region, then a playlist-usable region ----- */
+	PBD::PropertyList whole_plist;
+	whole_plist.add (ARDOUR::Properties::start,      Temporal::timecnt_t (Temporal::AudioTime));
+	whole_plist.add (ARDOUR::Properties::length,     asrc->length ());
+	whole_plist.add (ARDOUR::Properties::name,       std::string (PBD::basename_nosuffix (resolved_str)));
+	whole_plist.add (ARDOUR::Properties::whole_file, true);
+	whole_plist.add (ARDOUR::Properties::external,   false);
+
+	std::shared_ptr<ARDOUR::Region> whole = ARDOUR::RegionFactory::create (sources, whole_plist);
+	if (!whole) {
+		return roll_back_and_return ("REGION_CREATE_FAILED",
+		    "RegionFactory::create returned null (whole-file)");
+	}
+	cleanup_stack.push_back ([whole]() {
+		ARDOUR::RegionFactory::map_remove (whole);
+	});
+
+	PBD::PropertyList playlist_plist;
+	playlist_plist.add (ARDOUR::Properties::start,      Temporal::timepos_t (samplepos_t (src_offset)));
+	playlist_plist.add (ARDOUR::Properties::length,     Temporal::timecnt_t (timeline_length));
+	playlist_plist.add (ARDOUR::Properties::name,       std::string (PBD::basename_nosuffix (resolved_str)));
+	playlist_plist.add (ARDOUR::Properties::whole_file, (src_offset == 0 && timeline_length == (int64_t) source_length));
+	playlist_plist.add (ARDOUR::Properties::external,   false);
+
+	std::shared_ptr<ARDOUR::Region> region = ARDOUR::RegionFactory::create (whole, playlist_plist);
+	if (!region) {
+		return roll_back_and_return ("REGION_CREATE_FAILED",
+		    "RegionFactory::create returned null (playlist region)");
+	}
+	cleanup_stack.push_back ([region]() {
+		ARDOUR::RegionFactory::map_remove (region);
+	});
+
+	std::shared_ptr<ARDOUR::Playlist> pl = effective_track ? effective_track->playlist () : std::shared_ptr<ARDOUR::Playlist> ();
+	if (!pl) {
+		return roll_back_and_return ("REGION_CREATE_FAILED",
+		    "no playlist on track");
+	}
+
+	/* onOverlap policy. Detection + error return runs BEFORE begin_reversible_command
+	 * so the 'error' path has no mutation to undo. The mutation loop for non-error
+	 * policies (trim-existing / crossfade / layer) runs INSIDE begin_reversible_command
+	 * below, so existing-region edits land in the same undo group as the new-region insert. */
+	const std::string overlap_policy = root.get<std::string> ("params.arguments.onOverlap", "error");
+	const int         xfade_ms       = root.get<int>         ("params.arguments.overlapCrossfadeMs", 10);
+	if (xfade_ms < 0) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "overlapCrossfadeMs must be >= 0 (got " + std::to_string (xfade_ms) + ")");
+	}
+	if (overlap_policy != "error" && overlap_policy != "trim-existing" &&
+	    overlap_policy != "crossfade" && overlap_policy != "layer") {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "onOverlap must be one of: error | trim-existing | crossfade | layer (got '" + overlap_policy + "')");
+	}
+
+	/* Defensive: catch a future refactor that removes the earlier playlist validation. */
+	if (!pl) {
+		return roll_back_and_return ("REGION_CREATE_FAILED",
+		    "no playlist on effective track");
+	}
+
+	const Temporal::timepos_t new_start {samplepos_t (start_sample)};
+	const Temporal::timepos_t new_end   {samplepos_t (start_sample + timeline_length)};
+
+	std::vector<std::shared_ptr<ARDOUR::Region>> overlapping;
+	{
+		std::shared_ptr<ARDOUR::RegionList> all = pl->region_list ();
+		if (all) {
+			for (auto const& r : *all) {
+				if (!r) continue;
+				if (r->position () < new_end && r->end () > new_start) {
+					overlapping.push_back (r);
+				}
+			}
+		}
+	}
+
+	std::string overlap_action = "none";
+
+	if (!overlapping.empty () && overlap_policy == "error") {
+		const size_t ID_LIMIT = 20;
+		const size_t n        = overlapping.size ();
+		const size_t to_emit  = (n < ID_LIMIT) ? n : ID_LIMIT;
+		std::ostringstream ids;
+		ids << "[";
+		for (size_t i = 0; i < to_emit; ++i) {
+			if (i) ids << ",";
+			ids << "\"" << json_escape (overlapping[i]->id ().to_s ()) << "\"";
+		}
+		ids << "]";
+		std::string msg = "new region [" + std::to_string (start_sample) + ".."
+		                  + std::to_string (start_sample + timeline_length) + ") overlaps "
+		                  + std::to_string (n) + " existing region(s)";
+		if (n > ID_LIMIT) {
+			msg += " (first " + std::to_string (ID_LIMIT) + " shown; "
+			     + std::to_string (n - ID_LIMIT) + " more)";
+		}
+		msg += "; set onOverlap='trim-existing'|'crossfade'|'layer' or pick a different position";
+		return roll_back_and_return ("OVERLAP_REFUSED", msg);
+	}
+
+	if (!overlapping.empty ()) {
+		overlap_action = (overlap_policy == "layer") ? "layered"
+		                : (overlap_policy == "crossfade") ? "crossfaded"
+		                : "trimmed-existing";
+	}
+
+	/* Edge crossfade detection: find non-overlapping regions whose boundaries sit
+	 * within edgeToleranceMs of the new region's start or end. Runs after overlap
+	 * detection so overlapping regions aren't double-counted. */
+	const std::string edge_policy   = root.get<std::string> ("params.arguments.edgeCrossfade",    "auto");
+	const int         edge_tol_ms   = root.get<int>         ("params.arguments.edgeToleranceMs",  10);
+	const int         edge_xfade_ms = root.get<int>         ("params.arguments.edgeCrossfadeMs",  10);
+
+	if (edge_policy != "auto" && edge_policy != "none") {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "edgeCrossfade must be one of: auto | none (got '" + edge_policy + "')");
+	}
+	if (edge_tol_ms < 0 || edge_xfade_ms < 0) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "edgeToleranceMs and edgeCrossfadeMs must be >= 0");
+	}
+
+	struct EdgeNeighbor { std::shared_ptr<ARDOUR::AudioRegion> region; std::string side; };
+	std::vector<EdgeNeighbor> edge_neighbors;
+	const ARDOUR::samplecnt_t edge_tol_samples   =
+	    (ARDOUR::samplecnt_t) ((double) edge_tol_ms   / 1000.0 * (double) session.sample_rate ());
+	const ARDOUR::samplecnt_t edge_xfade_samples =
+	    (ARDOUR::samplecnt_t) ((double) edge_xfade_ms / 1000.0 * (double) session.sample_rate ());
+
+	if (edge_policy == "auto") {
+		std::shared_ptr<ARDOUR::RegionList> all = pl->region_list ();
+		const ARDOUR::samplepos_t new_end_sample = start_sample + timeline_length;
+		if (all) {
+			for (auto const& r : *all) {
+				if (!r) continue;
+				const ARDOUR::samplepos_t r_pos = r->position ().samples ();
+				const ARDOUR::samplepos_t r_end = r->end ().samples ();
+				/* Skip overlapping regions — handled by onOverlap policy. */
+				const bool r_overlaps = (r_pos < new_end_sample) && (r_end > (ARDOUR::samplepos_t) start_sample);
+				if (r_overlaps) continue;
+
+				std::shared_ptr<ARDOUR::AudioRegion> ar_r =
+				    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (r);
+				if (!ar_r) continue;
+
+				/* R ends within tolerance before (or exactly at) new_start. */
+				if (r_end <= (ARDOUR::samplepos_t) start_sample &&
+				    ((ARDOUR::samplepos_t) start_sample - r_end) <= (ARDOUR::samplepos_t) edge_tol_samples) {
+					edge_neighbors.push_back ({ar_r, std::string ("start")});
+					continue;
+				}
+				/* R starts within tolerance after (or exactly at) new_end. */
+				if (r_pos >= new_end_sample &&
+				    (r_pos - new_end_sample) <= (ARDOUR::samplepos_t) edge_tol_samples) {
+					edge_neighbors.push_back ({ar_r, std::string ("end")});
+					continue;
+				}
+			}
+		}
+	}
+
+	/* ----- Parse optional region-property overrides ----- */
+	const int64_t fade_in_samples  = root.get<int64_t> ("params.arguments.fadeInSamples",  64);
+	const int64_t fade_out_samples = root.get<int64_t> ("params.arguments.fadeOutSamples", 64);
+	const double  gain_db          = root.get<double>  ("params.arguments.gainDb",         0.0);
+	const bool    polarity_invert  = root.get<bool>    ("params.arguments.polarityInvert", false);
+	const bool    reverse_playback = root.get<bool>    ("params.arguments.reverse",        false);
+
+	if (fade_in_samples < 0) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "fadeInSamples must be >= 0 (got " + std::to_string (fade_in_samples) + ")");
+	}
+	if (fade_out_samples < 0) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "fadeOutSamples must be >= 0 (got " + std::to_string (fade_out_samples) + ")");
+	}
+	if (!std::isfinite (gain_db)) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "gainDb must be a finite number (got NaN or Inf)");
+	}
+	/* Sanity clamp: +60 dB is 1000x gain; -60 dB is -60 dBFS (below typical noise floor).
+	 * Values outside this range are almost certainly footguns from AI agents. */
+	if (gain_db > 60.0 || gain_db < -60.0) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "gainDb out of range [-60, +60] (got " + std::to_string (gain_db) + ")");
+	}
+
+	/* ----- Repeat / paste-multiple params ----- */
+	const int    rep_count  = root.get<int>    ("params.arguments.repeat.count",       1);
+	const double rep_stride = root.get<double> ("params.arguments.repeat.strideBeats", 0.0);
+
+	if (rep_count < 1 || rep_count > 100) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "repeat.count must be in [1, 100] (got " + std::to_string (rep_count) + ")");
+	}
+	if (rep_stride < 0.0 || !std::isfinite (rep_stride)) {
+		return roll_back_and_return ("INVALID_PARAMS",
+		    "repeat.strideBeats must be >= 0 and finite");
+	}
+
+	/* AudioRegion has no non-destructive reverse API (ARDOUR::Reverse is a
+	 * destructive Filter that rewrites source audio). Reject reverse=true
+	 * with a structured error rather than silently ignoring the request. */
+	if (reverse_playback) {
+		return roll_back_and_return ("REVERSE_NOT_SUPPORTED",
+		    "reverse playback is not supported by AudioRegion (no non-destructive reverse API)");
+	}
+
+	std::shared_ptr<ARDOUR::AudioRegion> placed_ar =
+	    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (region);
+	if (!placed_ar) {
+		return roll_back_and_return ("REGION_CREATE_FAILED",
+		    "placed region is not AudioRegion");
+	}
+
+	/* Apply region properties. Non-destructive overrides on the playlist
+	 * region; do not rewrite source audio. */
+	placed_ar->set_fade_in_length  ((ARDOUR::samplecnt_t) fade_in_samples);
+	placed_ar->set_fade_out_length ((ARDOUR::samplecnt_t) fade_out_samples);
+	const float base_amp = (float) std::pow (10.0, gain_db / 20.0);
+	placed_ar->set_scale_amplitude (polarity_invert ? -base_amp : base_amp);
+
+	/* ----- Commit the insert as an undoable command ----- */
+	const Temporal::timepos_t start_pos = Temporal::timepos_t (samplepos_t (start_sample));
+	session.begin_reversible_command ("audio_region_add");
+	pl->clear_changes ();
+	pl->clear_owned_changes ();
+
+	/* Overlap MUTATION loop: runs inside begin_reversible_command so trim/crossfade
+	 * edits to existing regions share the undo group with the new-region insert. */
+	std::ostringstream affected_json;
+	affected_json << "[";
+	if (!overlapping.empty () && overlap_policy != "error") {
+		const ARDOUR::samplecnt_t xfade_samples =
+		    (ARDOUR::samplecnt_t) ((double) xfade_ms / 1000.0 * (double) session.sample_rate ());
+
+		bool first_affected = true;
+		for (auto const& r : overlapping) {
+			if (!first_affected) affected_json << ",";
+			first_affected = false;
+			affected_json << "{\"id\":\"" << json_escape (r->id ().to_s ()) << "\",";
+
+			if (overlap_policy == "trim-existing") {
+				const ARDOUR::samplepos_t r_pos = r->position ().samples ();
+				const ARDOUR::samplepos_t r_end = r->end ().samples ();
+				if (r_pos < (ARDOUR::samplepos_t) start_sample && r_end > (ARDOUR::samplepos_t) start_sample &&
+				    r_end <= (ARDOUR::samplepos_t) (start_sample + timeline_length)) {
+					r->trim_end (new_start);
+					affected_json << "\"trim\":\"end_before_new_start\"";
+				} else if (r_pos >= (ARDOUR::samplepos_t) start_sample &&
+				           r_pos < (ARDOUR::samplepos_t) (start_sample + timeline_length) &&
+				           r_end > (ARDOUR::samplepos_t) (start_sample + timeline_length)) {
+					r->trim_front (new_end);
+					affected_json << "\"trim\":\"front_after_new_end\"";
+				} else {
+					/* R fully inside new (or R fully contains new) — trim end to new_start.
+					 * Zero-length guard: if r starts exactly at new_start, trim_end would
+					 * produce a zero-length region; remove it cleanly instead. */
+					if (r_pos == (ARDOUR::samplepos_t) start_sample) {
+						pl->remove_region (r);
+						affected_json << "\"action\":\"removed\"";
+					} else {
+						r->trim_end (new_start);
+						affected_json << "\"trim\":\"contained_shrink_to_new_start\"";
+					}
+				}
+			} else if (overlap_policy == "crossfade") {
+				std::shared_ptr<ARDOUR::AudioRegion> ar_existing =
+				    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (r);
+				if (ar_existing) {
+					ar_existing->set_fade_out_length (xfade_samples);
+				}
+				affected_json << "\"crossfade\":" << xfade_samples;
+			} else {
+				affected_json << "\"action\":\"layered\"";
+			}
+
+			affected_json << "}";
+		}
+	}
+	affected_json << "]";
+
+	/* Edge crossfade MUTATION: runs inside begin_reversible_command alongside
+	 * overlap mutations so neighbor-fade edits share the undo group. */
+	std::ostringstream edges_json;
+	edges_json << "[";
+	{
+		bool first_edge = true;
+		for (auto const& n : edge_neighbors) {
+			if (!first_edge) edges_json << ",";
+			first_edge = false;
+
+			if (n.side == "start") {
+				/* Neighbor sits just before new region: fade its tail out, fade new region's head in. */
+				const ARDOUR::samplecnt_t cur_out = (ARDOUR::samplecnt_t) n.region->fade_out_length ().samples ();
+				n.region->set_fade_out_length (std::max (cur_out, edge_xfade_samples));
+				const ARDOUR::samplecnt_t cur_in = (ARDOUR::samplecnt_t) placed_ar->fade_in_length ().samples ();
+				placed_ar->set_fade_in_length (std::max (cur_in, edge_xfade_samples));
+			} else {
+				/* Neighbor sits just after: fade new region's tail out, neighbor's head in. */
+				const ARDOUR::samplecnt_t cur_in = (ARDOUR::samplecnt_t) n.region->fade_in_length ().samples ();
+				n.region->set_fade_in_length (std::max (cur_in, edge_xfade_samples));
+				const ARDOUR::samplecnt_t cur_out = (ARDOUR::samplecnt_t) placed_ar->fade_out_length ().samples ();
+				placed_ar->set_fade_out_length (std::max (cur_out, edge_xfade_samples));
+			}
+
+			edges_json << "{\"side\":\"" << n.side << "\""
+			           << ",\"neighborRegionId\":\"" << json_escape (n.region->id ().to_s ()) << "\""
+			           << ",\"lengthSamples\":" << edge_xfade_samples << "}";
+		}
+	}
+	edges_json << "]";
+
+	region->set_position (start_pos);
+	pl->add_region (region, start_pos, 1.0, false);
+
+	/* Repeat: paste count-1 additional copies at strideBeats intervals.
+	 * v1 limitation: copies do NOT re-trigger overlap or edge-crossfade
+	 * resolution; they rely on Ardour's default playlist layering. */
+	std::ostringstream rep_ids_json;
+	rep_ids_json << "[";
+	bool first_rep = true;
+	if (rep_count > 1 && rep_stride > 0.0) {
+		for (int i = 1; i < rep_count; ++i) {
+			const Temporal::timepos_t orig_start {samplepos_t (start_sample)};
+			Temporal::Beats           stride_beats = Temporal::Beats::from_double (rep_stride * (double) i);
+			Temporal::timepos_t       copy_start   = orig_start + Temporal::timecnt_t (stride_beats, orig_start);
+
+			std::shared_ptr<ARDOUR::Region> copy = ARDOUR::RegionFactory::create (region, true);
+			if (!copy) continue;
+			pl->add_region (copy, copy_start, 1.0, false);
+
+			if (!first_rep) rep_ids_json << ",";
+			first_rep = false;
+			rep_ids_json << "\"" << json_escape (copy->id ().to_s ()) << "\"";
+		}
+	}
+	rep_ids_json << "]";
+
+	pl->rdiff_and_add_command (&session);
+	session.commit_reversible_command ();
+
+	cleanup_stack.clear ();  /* success — all mutations are now committed/undoable */
+
+	/* ----- Success response ----- */
+	std::ostringstream out;
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"region added\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":true,"
+	    << "\"regionId\":\""          << json_escape (region->id ().to_s ()) << "\","
+	    << "\"trackId\":\""           << json_escape (track_created ? new_track_id : track_id) << "\","
+	    << "\"trackCreated\":"        << (track_created ? "true" : "false") << ","
+	    << "\"originalTrackId\":\""   << json_escape (track_id) << "\","
+	    << "\"newTrackId\":"          << (track_created ? "\"" + json_escape (new_track_id) + "\"" : "null") << ","
+	    << "\"newTrackName\":"        << (track_created ? "\"" + json_escape (new_track_name) + "\"" : "null") << ","
+	    << "\"startSample\":"         << start_sample                        << ","
+	    << "\"timelineLengthSamples\":" << timeline_length                   << ","
+	    << "\"sourceId\":\""          << json_escape (asrc->id ().to_s ())   << "\","
+	    << "\"sourceChannels\":"      << sources.size ()                     << ","
+	    << "\"sourceLengthSamples\":" << source_length                       << ","
+	    << "\"fileCopied\":true,"
+	    << "\"sessionFilePath\":\""   << json_escape (session_file_path)     << "\","
+	    << "\"fadeInSamples\":"       << fade_in_samples                     << ","
+	    << "\"fadeOutSamples\":"      << fade_out_samples                    << ","
+	    << "\"gainDb\":"              << gain_db                             << ","
+	    << "\"polarityInvert\":"      << (polarity_invert  ? "true" : "false") << ","
+	    << "\"reverse\":"             << (reverse_playback ? "true" : "false") << ","
+	    << "\"overlapAction\":\""     << json_escape (overlap_action)        << "\","
+	    << "\"overlappingRegionsAffected\":" << affected_json.str ()         << ","
+	    << "\"edgeCrossfadesCreated\":"      << edges_json.str ()            << ","
+	    << "\"repeatedRegionIds\":"          << rep_ids_json.str ()          << ","
+	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
+	    << "}}";
+	return jsonrpc_result (id, out.str ());
+}
+
+static std::string
 handle_midi_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
 	ARDOUR::Session& _session = session;
@@ -7972,6 +8905,17 @@ dispatch_midi_region_tool_call (ARDOUR::Session& session, const std::string& too
 	return false;
 }
 
+static bool
+dispatch_audio_region_tool_call (ARDOUR::Session& session, const std::string& tool_name, pt::ptree& root, const std::string& id, std::string& response)
+{
+	if (tool_name == "audio_region/add") {
+		response = handle_audio_region_add_tool (session, root, id);
+		return true;
+	}
+
+	return false;
+}
+
 /* ============================================================
  *  session/lua_eval  — sandboxed Lua execution in session context
  * ============================================================ */
@@ -8235,6 +9179,11 @@ MCPHttpServer::dispatch_jsonrpc (const std::string& payload) const
 		std::string midi_region_tool_response;
 		if (dispatch_midi_region_tool_call (_session, tool_name, root, id, midi_region_tool_response)) {
 			return midi_region_tool_response;
+		}
+
+		std::string audio_region_tool_response;
+		if (dispatch_audio_region_tool_call (_session, tool_name, root, id, audio_region_tool_response)) {
+			return audio_region_tool_response;
 		}
 
 		return jsonrpc_error (id, -32602, "Unknown tool name");

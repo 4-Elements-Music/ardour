@@ -3,6 +3,10 @@
  *
  * Reads sessionManager, config from Fastify decorators set in server.js.
  */
+import { mkdir, stat, writeFile } from 'fs/promises';
+import { join as joinPath, resolve as resolvePath, relative } from 'path';
+import { decodeToCanonicalWav } from '../lib/sandbox-decode.js';
+
 export async function sessionRoutes(app) {
   // POST /v1/sessions — create session (202 Accepted)
   app.post('/sessions', async (req, reply) => {
@@ -48,7 +52,9 @@ export async function sessionRoutes(app) {
   app.get('/sessions/:id', async (req, reply) => {
     const s = app.sessionManager.get(req.params.id);
     if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
-    return sessionToResponse(s);
+    const out = sessionToResponse(s);
+    out.uploads = app.sessionManager.getUploads(s.id);
+    return out;
   });
 
   // DELETE /v1/sessions/:id
@@ -72,8 +78,75 @@ export async function sessionRoutes(app) {
     if (s.status !== 'ready') {
       return reply.code(409).send({ error_code: 'NOT_READY', status: s.status });
     }
-    const { tool, params } = req.body || {};
+    let { tool, params } = req.body || {};
     if (!tool) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'tool required' });
+
+    if (tool === 'audio_region_add') {
+      // Client MUST NOT supply decodedPath — it's server-injected.
+      params = { ...(params || {}) };
+      delete params.decodedPath;
+
+      const reqId = params.requestId;
+      // Include dryRun in the cache key so a dryRun + live call that happen to share a
+      // requestId don't cross-replay each other's responses (different operations,
+      // same idempotency key is a caller mistake but easy to trip into).
+      const cacheKey = reqId
+        ? `${req.params.id}:${params.dryRun ? 'dry' : 'live'}:${reqId}`
+        : null;
+
+      if (cacheKey && app.requestCache && app.requestCache.has(cacheKey)) {
+        return reply.send(app.requestCache.get(cacheKey));
+      }
+
+      const uploadId = params.uploadId;
+      if (!uploadId) {
+        return reply.code(400).send({ error_code: 'MISSING_UPLOAD', message: 'uploadId required' });
+      }
+      const uploadPath = app.sessionManager.getUploadPath(req.params.id, uploadId);
+      if (!uploadPath) {
+        return reply.code(404).send({ error_code: 'MISSING_UPLOAD', message: `uploadId ${uploadId} not found` });
+      }
+
+      let decodedPath = app.sessionManager.getDecodedPath(req.params.id, uploadId);
+      if (!decodedPath) {
+        try {
+          decodedPath = await app.sessionManager.decodeOnce(req.params.id, uploadId, async () => {
+            const decodedDir = joinPath(s.sessionDir, 'decoded');
+            await mkdir(decodedDir, { recursive: true });
+            const out = joinPath(decodedDir, `${uploadId}.wav`);
+            // Second-caller check: if a prior decode finished between our initial
+            // getDecodedPath and entering the factory, use its result.
+            const cached = app.sessionManager.getDecodedPath(req.params.id, uploadId);
+            if (cached) return cached;
+            await decodeToCanonicalWav({
+              input: uploadPath,
+              output: out,
+              validatorBin: app.config.audioValidatorBin,
+            });
+            app.sessionManager.cacheDecodedPath(req.params.id, uploadId, out);
+            return out;
+          });
+        } catch (e) {
+          return reply.code(400).send({
+            error_code: e.code || 'DECODE_FAILED',
+            message: e.message,
+            stderr: e.stderr ? String(e.stderr).slice(-1024) : undefined,
+          });
+        }
+      }
+
+      params.decodedPath = decodedPath;
+
+      try {
+        const result = await app.actionProxy.execute(s, tool, params, req.id);
+        const payload = result.result ?? result;
+        if (cacheKey && app.requestCache) app.requestCache.put(cacheKey, payload);
+        return payload;
+      } catch (e) {
+        return mapProxyError(reply, e);
+      }
+    }
+
     try {
       const result = await app.actionProxy.execute(s, tool, params, req.id);
       return result.result ?? result;
@@ -134,8 +207,6 @@ export async function sessionRoutes(app) {
       return reply.code(400).send({ error_code: 'INVALID_FILE_TYPE', error: 'extension not allowed' });
     }
 
-    const { mkdir, stat, writeFile } = await import('fs/promises');
-    const { resolve: resolvePath, relative } = await import('path');
     const uploadsDir = resolvePath(s.sessionDir, 'uploads');
     await mkdir(uploadsDir, { recursive: true });
     const destPath = resolvePath(uploadsDir, sanitized);
@@ -166,10 +237,14 @@ export async function sessionRoutes(app) {
     await writeFile(destPath, buf);
     s.uploadBytesUsed += size;
 
+    const uploadId = app.sessionManager.registerUpload(req.params.id, sanitized, size, destPath);
+    // TODO(audio_region_add): remove `path` and `size` once upload_id-based flow is the only path (after Task 8). Kept here only so existing clients don't break mid-migration.
     return reply.code(200).send({
-      path: destPath,
+      upload_id: uploadId,
       filename: sanitized,
+      bytes: size,
       size,
+      path: destPath,
     });
   });
 }

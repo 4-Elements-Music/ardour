@@ -1473,6 +1473,8 @@ int main () { __int128 x = 0; return 0; }
     elif Options.options.dist_target != 'mingw' and Options.options.dist_target != 'msvc':
         sub_config_and_use(conf, 'tools/sanity_check')
 
+    sub_config_and_use(conf, 'tools/audio-validator')
+
     # explicitly link against libm. This is possible on all POSIX systems
     # and required on Linux for symbol versioning and ABI compatibility
     if not (Options.options.dist_target == 'mingw' or Options.options.dist_target == 'msvc'):
@@ -1633,6 +1635,8 @@ def build(bld):
         obj.target       = 'libs/ardour-avahi'
         obj.chmod        = Utils.O755
         obj.install_path = bld.env['LIBDIR']
+
+    bld.recurse('tools/audio-validator')
 
     for i in children:
         bld.recurse(i)

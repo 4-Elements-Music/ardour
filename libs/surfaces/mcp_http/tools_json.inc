@@ -2279,6 +2279,68 @@ R"mcp(
       }
     },
     {
+      "name": "audio_region_add",
+      "title": "Add Audio Region",
+      "description": "Place an uploaded audio file as a region on a track. Handles channel mismatch, fades, overlap/edge-crossfade, snap, repeat, and atomic rollback. v1: no time-stretch/pitch-shift (see audio_region_stretch v2). See docs/superpowers/specs/2026-04-12-audio-region-add-design.md for the full contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "trackId": { "type": "string" },
+          "uploadId": { "type": "string" },
+          "decodedPath": { "type": "string", "description": "Server-injected absolute path resolved from uploadId; clients MUST NOT supply." },
+          "name": { "type": "string" },
+          "position": {
+            "type": "object",
+            "properties": {
+              "unit":  { "type": "string", "enum": ["samples","seconds","beats","bars+beats"] },
+              "value": {}
+            },
+            "required": ["unit","value"],
+            "additionalProperties": false
+          },
+          "sourceOffsetSamples": { "type": "integer", "minimum": 0 },
+          "timelineLength": {
+            "type": "object",
+            "properties": {
+              "unit":  { "type": "string", "enum": ["samples","seconds","beats","bars+beats"] },
+              "value": {}
+            },
+            "required": ["unit","value"],
+            "additionalProperties": false
+          },
+          "copyToSession":          { "type": "boolean" },
+          "channelMismatch":        { "type": "string", "enum": ["error","truncate","auto-track"] },
+          "allowTrackCreation":     { "type": "boolean" },
+          "sampleRateConversion":   { "type": "string", "enum": ["auto","strict","none"] },
+          "srcQuality":             { "type": "string", "enum": ["best","medium","fast"] },
+          "fadeInSamples":          { "type": "integer", "minimum": 0 },
+          "fadeOutSamples":         { "type": "integer", "minimum": 0 },
+          "gainDb":                 { "type": "number" },
+          "polarityInvert":         { "type": "boolean" },
+          "reverse":                { "type": "boolean" },
+          "snap":                   { "type": "string", "enum": ["none","bar","beat","grid"] },
+          "onOverlap":              { "type": "string", "enum": ["error","trim-existing","crossfade","layer"] },
+          "overlapCrossfadeMs":     { "type": "integer", "minimum": 0 },
+          "edgeCrossfade":          { "type": "string", "enum": ["auto","none"] },
+          "edgeToleranceMs":        { "type": "integer", "minimum": 0 },
+          "edgeCrossfadeMs":        { "type": "integer", "minimum": 0 },
+          "repeat": {
+            "type": "object",
+            "properties": {
+              "count":       { "type": "integer", "minimum": 1 },
+              "strideBeats": { "type": "number",  "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "preserveOriginalTimestamp": { "type": "boolean" },
+          "dryRun":                    { "type": "boolean" },
+          "requestId":                 { "type": "string" }
+        },
+        "required": ["trackId","uploadId","position"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "midi_note_add",
       "title": "Add MIDI Note",
       "description": "Add one MIDI note to an existing MIDI region at region beats, sample, or bar+beat position.",

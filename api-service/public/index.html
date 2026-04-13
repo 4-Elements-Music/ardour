@@ -26,6 +26,11 @@
     </div>
     <div id="center-panel">
       <h3>Actions</h3>
+      <div class="upload-control" style="margin: 8px 0;">
+        <label for="upload-file" style="display: inline-block; width: 110px;">Upload file:</label>
+        <input type="file" id="upload-file" accept="audio/wav,audio/mpeg,audio/flac,audio/aiff,audio/ogg,.wav,.mp3,.flac,.aiff,.ogg,.mid,.midi" />
+        <span id="upload-status" style="margin-left: 8px; color: #666;"></span>
+      </div>
       <select id="tool-select"><option>Loading…</option></select>
       <div id="param-form"></div>
       <button id="btn-send">Send</button>

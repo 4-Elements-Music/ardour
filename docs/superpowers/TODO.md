@@ -54,3 +54,22 @@ Log ring buffer is bounded to 10k lines, but the `stderrTail` array is separate 
 
 ### GUI/headless session migration
 Can't convert a headless session to GUI after creation. Would need to kill luasession, launch Ardour GUI on the saved session file. Future feature.
+
+## Audio region follow-ups
+
+**From spec (`docs/superpowers/specs/2026-04-12-audio-region-add-design.md`):**
+
+- [ ] F1: Rename `plugin_add.id` → `plugin_add.trackId`; retrofit `midi_region_add` position to tagged-union form for schema consistency across all region/plugin tools.
+- [ ] F2: Implement `audio_region_stretch` (v2 async tool) using Rubber Band for time-stretch + pitch-shift. Runs as a background job with a `jobId` poll pattern (not inline like `audio_region_add`).
+- [ ] F3: Parse full BWF/iXML metadata in the audio-validator sidecar so `preserveOriginalTimestamp` can honor embedded TimeReference.
+- [ ] F4: Revisit `allowTrackCreation` default after 3 months of usage data — if nobody trips on the current safety gate, consider making `auto-track` default.
+- [ ] F5: Converge `region_get_full` output shape with the `audio_region_add` response shape so the two tools speak the same vocabulary.
+
+**From security + code-quality reviews during implementation:**
+
+- [x] F6 (closed — won't do for v1): `sandbox-exec` FS sandboxing for the audio-validator sidecar. Rationale: process isolation (separate process = crash containment) is the load-bearing defense in our threat model; FS sandboxing was bonus defense-in-depth. macOS alternatives (sandbox_init, App Sandbox via .app bundle, XPC) are all heavy or broken. Linux landlock is only useful if we ship Linux hosts. Revisit only if we multi-tenant (untrusted uploads from different users touching the same host) or find libsndfile CVEs that let a malformed file do more than crash.
+- [ ] F7: Detect and recover from UE-state validator children on macOS 15+. `SIGKILL`'d libsndfile children in uninterruptible I/O never reap. Partial mitigation landed (default timeout bumped 30s→60s). Real fix: migrate sidecar to a runtime with better cancellation (ffmpeg decoder), or document an ops-level host-rotation policy.
+- [ ] F8: Stacked-neighbor dedupe in `edgeCrossfadesCreated[]` response. If two playlist regions both end within tolerance of `new_start`, the response emits two entries but `placed_ar.fade_in` is set once (via `max`). Consider merging entries or marking the second as a no-op for clarity.
+- [ ] F9: `fadeInSamples:0` + `edgeCrossfade:auto` silently upgrades the zero fade to the edge crossfade length. User's explicit-disable intent is lost. Clean fix requires a "was-default" sentinel; for now, document in the tool schema.
+- [ ] F10: Surface a warning when `RegionFactory::create` returns null during `repeat` copy insertion. Currently silently produces fewer copies than requested.
+- [ ] F11: `dryRun` projection of overlap + edge-crossfade (currently emits empty arrays). Low-value for v1 since callers rarely dry-run against a dense playlist, but worth closing the projection gap later.

@@ -17,7 +17,8 @@ h3 { margin-top: 0; color: #eee; }
 #tool-select { width: 100%; padding: 6px; background: #222; color: #ccc; border: 1px solid #555; margin-bottom: 8px; }
 #param-form { margin: 8px 0; }
 #param-form label { display: block; margin: 4px 0; }
-#param-form input, #param-form textarea { width: 100%; padding: 4px; background: #222; color: #ccc; border: 1px solid #555; font-family: inherit; }
+#param-form input, #param-form textarea, #param-form select { width: 100%; padding: 4px; background: #222; color: #ccc; border: 1px solid #555; font-family: inherit; }
+#param-form .param-hint { font-size: 11px; color: #888; margin: 2px 0 4px; font-style: italic; }
 .log-controls { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
 .log-controls input { flex: 1; padding: 4px 6px; background: #222; color: #ccc; border: 1px solid #555; }
 #log { max-height: calc(100vh - 180px); overflow-y: auto; scroll-behavior: smooth; }
