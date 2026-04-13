@@ -6017,9 +6017,22 @@ parse_position_union (ARDOUR::Session& session, const pt::ptree& node,
 	return -1;
 }
 
+/* Per-process mutex — serializes concurrent audio_region_add calls on the
+ * same Ardour session. One Ardour process == one session in the current
+ * deployment model, so a file-scope static is equivalent to per-session. */
+static std::mutex g_audio_region_add_mutex;
+
 static std::string
 handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
+	/* Serialize concurrent audio_region_add invocations on this session. The handler
+	 * mutates session state (begin_reversible_command, playlist->add_region, etc.)
+	 * which is not safe for concurrent access even on a single session; plus repeat/
+	 * overlap/edge-crossfade blocks read then mutate the playlist's region list,
+	 * which a racing call could corrupt. One process == one session in this
+	 * deployment, so a file-scope static mutex is per-session. */
+	std::lock_guard<std::mutex> ar_add_lock (g_audio_region_add_mutex);
+
 	/* Required inputs */
 	const std::string track_id     = root.get<std::string> ("params.arguments.trackId",     "");
 	const std::string upload_id    = root.get<std::string> ("params.arguments.uploadId",    "");
