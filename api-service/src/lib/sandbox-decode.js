@@ -21,6 +21,8 @@ import { spawn } from 'child_process';
  *   .exitCode    : child's exit code, or null on timeout/signal
  *   .signal      : signal name if killed, else null
  */
+const OUTPUT_CAP = 65536;
+
 export function decodeToCanonicalWav ({ input, output, validatorBin, timeoutMs = 30000 }) {
   return new Promise((resolve, reject) => {
     if (!validatorBin) {
@@ -29,25 +31,54 @@ export function decodeToCanonicalWav ({ input, output, validatorBin, timeoutMs =
     }
 
     const child = spawn(validatorBin, [input, output], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d) => { stdout += d; });
-    child.stderr.on('data', (d) => { stderr += d; });
-
     let timedOut = false;
+    let overCap = false;
+    let killed = false;
+    let settled = false;
+
+    const settle = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(val);
+    };
+
+    const killForOverCap = () => {
+      if (killed) return;
+      killed = true;
+      overCap = true;
+      try { child.kill('SIGKILL'); } catch (_) { /* ignore */ }
+    };
+
+    child.stdout.on('data', (d) => {
+      stdout += d;
+      if (stdout.length > OUTPUT_CAP) killForOverCap();
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d;
+      if (stderr.length > OUTPUT_CAP) killForOverCap();
+    });
+
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
     }, timeoutMs);
 
     child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(Object.assign(err, { code: 'DECODE_FAILED', stderr }));
+      settle(reject, Object.assign(err, { code: 'DECODE_FAILED', stderr: stderr.slice(-4096) }));
     });
 
     child.on('close', (exitCode, signal) => {
-      clearTimeout(timer);
       const trimmedStderr = stderr.slice(-4096);
+      if (overCap) {
+        return settle(reject, Object.assign(new Error('validator output exceeded 64KB cap'),
+          { code: 'DECODE_FAILED', stderr: trimmedStderr, exitCode, signal }));
+      }
       if (exitCode === 0 && !timedOut) {
         try {
           const parsed = JSON.parse(stdout);
@@ -56,20 +87,20 @@ export function decodeToCanonicalWav ({ input, output, validatorBin, timeoutMs =
               typeof parsed.frames !== 'number') {
             throw new Error('validator stdout missing numeric fields');
           }
-          return resolve({
+          return settle(resolve, {
             channels: parsed.channels,
             sampleRate: parsed.sampleRate,
             frames: parsed.frames,
           });
         } catch (e) {
-          return reject(Object.assign(new Error(`validator stdout unparseable: ${e.message}`),
+          return settle(reject, Object.assign(new Error(`validator stdout unparseable: ${e.message}`),
             { code: 'DECODE_FAILED', stderr: trimmedStderr, exitCode, signal }));
         }
       }
       const msg = timedOut
         ? `validator timed out after ${timeoutMs}ms`
         : `validator exited with code ${exitCode}${signal ? ` (signal ${signal})` : ''}`;
-      reject(Object.assign(new Error(msg),
+      settle(reject, Object.assign(new Error(msg),
         { code: 'DECODE_FAILED', stderr: trimmedStderr, exitCode, signal }));
     });
   });

@@ -58,3 +58,4 @@ Can't convert a headless session to GUI after creation. Would need to kill luase
 ## Audio region follow-ups
 
 - [ ] F6: Replace direct-exec audio-validator launch with proper sandboxing on macOS. `sandbox-exec` is Apple-deprecated and hangs children in UE state on Darwin 24+. Investigate App Sandbox via XPC service or `sandbox_init()` with hand-tuned operations. Linux: wire up landlock. Process isolation alone handles the primary threat (crash containment); FS sandboxing is defense-in-depth.
+- [ ] F7: Production audio_region_add path should detect and recover from UE-state validator children. macOS macOS Sequoia (Darwin 24) leaves SIGKILL'd libsndfile children in uninterruptible state when killed mid-I/O, until reboot. Mitigations: pre-validate file size, use longer default timeout, periodic ghost sweep, or migrate sidecar to a runtime that doesn't wedge libsndfile (e.g. soxr or ffmpeg).

@@ -51,11 +51,22 @@ describe('sandbox-decode', { skip: skipIfNoValidator && 'validator binary not bu
     );
   });
 
-  it('rejects with DECODE_FAILED when timeout hits', async () => {
-    // Simulate timeout by using a tiny timeout on a valid input — the process will be killed mid-run.
+  it('rejects with DECODE_FAILED when timeout hits (using /bin/cat as a sleeping fake validator)', async () => {
+    // We use /bin/cat /dev/zero instead of the real validator so SIGKILL reaps cleanly.
+    // The real validator can wedge in libsndfile I/O when killed mid-stream (UE state on macOS).
+    // The wrapper's behavior is identical regardless of what binary we wrap.
     await assert.rejects(
-      decodeToCanonicalWav({ input: `${tmp}/ok.wav`, output: `${tmp}/ok-out2.wav`, validatorBin, timeoutMs: 1 }),
-      (err) => { assert.equal(err.code, 'DECODE_FAILED'); return true; }
+      decodeToCanonicalWav({
+        input: '/dev/zero',
+        output: '/tmp/sandbox-decode-test/cat-out',
+        validatorBin: '/bin/cat',
+        timeoutMs: 100,
+      }),
+      (err) => {
+        assert.equal(err.code, 'DECODE_FAILED');
+        assert.equal(err.signal, 'SIGKILL', `expected SIGKILL signal, got ${err.signal}`);
+        return true;
+      }
     );
   });
 });
