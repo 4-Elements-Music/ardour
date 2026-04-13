@@ -6225,15 +6225,32 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	}
 
 	/* ----- Parse optional region-property overrides ----- */
-	const int64_t fade_in_samples  = std::max<int64_t> (0, root.get<int64_t> ("params.arguments.fadeInSamples",  64));
-	const int64_t fade_out_samples = std::max<int64_t> (0, root.get<int64_t> ("params.arguments.fadeOutSamples", 64));
+	const int64_t fade_in_samples  = root.get<int64_t> ("params.arguments.fadeInSamples",  64);
+	const int64_t fade_out_samples = root.get<int64_t> ("params.arguments.fadeOutSamples", 64);
 	const double  gain_db          = root.get<double>  ("params.arguments.gainDb",         0.0);
 	const bool    polarity_invert  = root.get<bool>    ("params.arguments.polarityInvert", false);
 	const bool    reverse_playback = root.get<bool>    ("params.arguments.reverse",        false);
 
+	if (fade_in_samples < 0) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "fadeInSamples must be >= 0 (got " + std::to_string (fade_in_samples) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	if (fade_out_samples < 0) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "fadeOutSamples must be >= 0 (got " + std::to_string (fade_out_samples) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
 	if (!std::isfinite (gain_db)) {
 		return audio_region_add_validation_error (id, "INVALID_PARAMS",
-		    "gainDb must be finite",
+		    "gainDb must be a finite number (got NaN or Inf)",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	/* Sanity clamp: +60 dB is 1000x gain; -60 dB is -60 dBFS (below typical noise floor).
+	 * Values outside this range are almost certainly footguns from AI agents. */
+	if (gain_db > 60.0 || gain_db < -60.0) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "gainDb out of range [-60, +60] (got " + std::to_string (gain_db) + ")",
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
