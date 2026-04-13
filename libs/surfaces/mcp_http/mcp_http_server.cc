@@ -38,6 +38,8 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <sndfile.h>
+
 #include <glibmm/miscutils.h>
 
 #include "pbd/basename.h"
@@ -6159,6 +6161,133 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 			const Temporal::BBT_Argument snapped (bar_adj, beat_adj, ticks_adj);
 			start_sample = (int64_t) tm->sample_at (snapped);
 		}
+	}
+
+	/* ----- dryRun early-exit: full read-only validation, no session mutation. -----
+	 *
+	 * When dryRun=true we skip session.save_state/import_files/new_audio_track/
+	 * RegionFactory::create/add_region/begin_reversible_command entirely. The file
+	 * is peeked via libsndfile so we can run sourceOffsetSamples / timelineLength /
+	 * channel-mismatch validation and project the would-be-effective track.
+	 *
+	 * v1 scope: overlap/edge arrays are left empty (a deep projection against the
+	 * actual playlist requires a non-auto-track code path — deferred).
+	 */
+	if (dry_run) {
+		/* Peek file metadata via libsndfile without importing. */
+		SF_INFO sfinfo = {};
+		SNDFILE* sf = sf_open (resolved_str.c_str (), SFM_READ, &sfinfo);
+		if (!sf) {
+			return roll_back_and_return ("UNREADABLE_FILE",
+			    std::string ("libsndfile cannot open decoded file: ") + sf_strerror (NULL));
+		}
+		const uint32_t    dry_src_channels = (uint32_t) sfinfo.channels;
+		const ARDOUR::samplecnt_t dry_src_length = (ARDOUR::samplecnt_t) sfinfo.frames;
+		const int         dry_src_sr       = sfinfo.samplerate;
+		sf_close (sf);
+
+		/* Parse sourceOffsetSamples + timelineLength against the peeked file length
+		 * (mirror of the post-import validation block). */
+		const int64_t src_offset = root.get<int64_t> ("params.arguments.sourceOffsetSamples", 0);
+		if (src_offset < 0 || src_offset >= (int64_t) dry_src_length) {
+			return roll_back_and_return ("INVALID_POSITION",
+			    "sourceOffsetSamples out of range (0.." + std::to_string (dry_src_length - 1) + ")");
+		}
+
+		int64_t    timeline_length = 0;
+		bool       tl_set          = false;
+		const auto tl_opt = root.get_child_optional ("params.arguments.timelineLength");
+		if (tl_opt) {
+			const std::string unit = tl_opt->get<std::string> ("unit", "");
+			if (unit == "samples") {
+				timeline_length = tl_opt->get<int64_t> ("value", -1);
+				if (timeline_length <= 0) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength.value must be > 0 (samples)");
+				}
+				tl_set = true;
+			} else if (unit == "seconds") {
+				const double secs = tl_opt->get<double> ("value", -1.0);
+				if (secs <= 0.0 || !std::isfinite (secs)) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength.value must be > 0 and finite (seconds)");
+				}
+				timeline_length = (int64_t) (secs * (double) session.sample_rate ());
+				if (timeline_length == 0) {
+					return roll_back_and_return ("INVALID_POSITION",
+					    "timelineLength in seconds rounds to 0 samples; use a larger value");
+				}
+				tl_set = true;
+			} else if (unit == "beats" || unit == "bars+beats") {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength with unit '" + unit + "' not supported in v1 (use samples or seconds)");
+			} else {
+				return roll_back_and_return ("INVALID_POSITION",
+				    "timelineLength.unit required (samples or seconds in v1)");
+			}
+		}
+		if (!tl_set) {
+			timeline_length = (int64_t) dry_src_length - src_offset;
+		}
+		if (src_offset + timeline_length > (int64_t) dry_src_length) {
+			return roll_back_and_return ("INSUFFICIENT_SOURCE",
+			    "sourceOffsetSamples (" + std::to_string (src_offset)
+			        + ") + timelineLength (" + std::to_string (timeline_length)
+			        + ") exceeds sourceLengthSamples (" + std::to_string (dry_src_length) + ")");
+		}
+
+		/* Channel mismatch projection — without actually creating a track. */
+		std::shared_ptr<ARDOUR::AudioTrack> at =
+		    std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route);
+		const uint32_t track_channels = at->n_inputs ().n_audio ();
+		bool        dry_track_created = false;
+		std::string dry_new_track_name;
+
+		if (dry_src_channels != track_channels) {
+			const std::string policy = root.get<std::string> ("params.arguments.channelMismatch", "error");
+			const bool        allow  = root.get<bool>        ("params.arguments.allowTrackCreation", false);
+			if (policy == "error") {
+				return roll_back_and_return ("CHANNEL_MISMATCH",
+				    "(dryRun) file has " + std::to_string (dry_src_channels) + " ch, track has "
+				      + std::to_string (track_channels) + "; set channelMismatch='auto-track' + allowTrackCreation=true or 'truncate'");
+			}
+			if (policy == "auto-track") {
+				if (!allow) {
+					return roll_back_and_return ("CHANNEL_MISMATCH",
+					    "(dryRun) channelMismatch='auto-track' requires allowTrackCreation=true");
+				}
+				dry_track_created  = true;
+				dry_new_track_name = at->name () + "-" + std::to_string (dry_src_channels) + "ch";
+			} else if (policy == "truncate") {
+				/* no-op: projection continues */
+			} else {
+				return roll_back_and_return ("INVALID_PARAMS",
+				    "channelMismatch must be one of: error | truncate | auto-track (got '" + policy + "')");
+			}
+		}
+
+		/* Emit projected-success response. */
+		std::ostringstream out;
+		out << "{\"content\":[{\"type\":\"text\",\"text\":\"dry run — no mutation performed\"}],"
+		    << "\"structuredContent\":{"
+		    << "\"ok\":true,"
+		    << "\"dryRun\":true,"
+		    << "\"regionId\":\"\","
+		    << "\"trackId\":\""           << json_escape (dry_track_created ? std::string ("(dryRun)") : track_id) << "\","
+		    << "\"trackCreated\":"        << (dry_track_created ? "true" : "false") << ","
+		    << "\"originalTrackId\":\""   << json_escape (track_id) << "\","
+		    << "\"newTrackId\":"          << (dry_track_created ? "\"(dryRun)\"" : "null") << ","
+		    << "\"newTrackName\":"        << (dry_track_created ? std::string ("\"") + json_escape (dry_new_track_name) + "\"" : std::string ("null")) << ","
+		    << "\"startSample\":"         << start_sample << ","
+		    << "\"timelineLengthSamples\":" << timeline_length << ","
+		    << "\"sourceChannels\":"      << dry_src_channels << ","
+		    << "\"sourceSampleRate\":"    << dry_src_sr << ","
+		    << "\"sourceLengthSamples\":" << dry_src_length << ","
+		    << "\"overlappingRegionsAffected\":[],"
+		    << "\"edgeCrossfadesCreated\":[],"
+		    << "\"repeatedRegionIds\":[]"
+		    << "}}";
+		return jsonrpc_result (id, out.str ());
 	}
 
 	/* ----- Real import ----- */
