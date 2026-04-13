@@ -6164,8 +6164,13 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 			track_created   = true;
 			new_track_id    = effective_track->id ().to_s ();
 			new_track_name  = effective_track->name ();
+			/* TODO(Task 19 rollback): if any subsequent step fails (region create,
+			 * playlist insert), this newly-created track is left orphaned in the
+			 * session. Task 19 will register rollback callbacks to tear it down. */
 		} else if (policy == "truncate") {
-			/* fall through — Ardour handles width mismatch by truncation at the playlist layer */
+			/* Fall through — Ardour's Playlist::add_region + RegionFactory::create
+			 * reconcile width mismatches by dropping or zero-filling extra source
+			 * channels during playback; no explicit handling needed here. */
 		} else {
 			return audio_region_add_validation_error (id, "INVALID_PARAMS",
 			    "channelMismatch must be one of: error | truncate | auto-track (got '" + policy + "')",
