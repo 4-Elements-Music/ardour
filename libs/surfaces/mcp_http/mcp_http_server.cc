@@ -5907,6 +5907,29 @@ dispatch_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop,
 }
 
 static std::string
+audio_region_add_validation_error (const std::string& id,
+                                   const std::string& code,
+                                   const std::string& message,
+                                   const std::string& track_id,
+                                   const std::string& upload_id,
+                                   const std::string& decoded_path,
+                                   bool               dry_run)
+{
+	std::ostringstream out;
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"" << json_escape (message) << "\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":false,"
+	    << "\"failedAt\":\"validation\","
+	    << "\"error\":{\"code\":\"" << code << "\",\"message\":\"" << json_escape (message) << "\"},"
+	    << "\"trackId\":\"" << json_escape (track_id) << "\","
+	    << "\"uploadId\":\"" << json_escape (upload_id) << "\","
+	    << "\"decodedPath\":\"" << json_escape (decoded_path) << "\","
+	    << "\"dryRun\":" << (dry_run ? "true" : "false")
+	    << "}}";
+	return jsonrpc_result (id, out.str ());
+}
+
+static std::string
 handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
 	/* Required inputs */
@@ -5915,33 +5938,51 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	const std::string decoded_path = root.get<std::string> ("params.arguments.decodedPath", "");
 	const bool        dry_run      = root.get<bool>        ("params.arguments.dryRun",      false);
 
-	if (track_id.empty ())     return jsonrpc_error (id, -32602, "trackId required");
-	if (upload_id.empty ())    return jsonrpc_error (id, -32602, "uploadId required");
-	if (decoded_path.empty ()) return jsonrpc_error (id, -32602, "decodedPath required (server-injected after upload validation; clients must not call directly)");
+	if (track_id.empty ()) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS", "trackId required",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+	if (upload_id.empty ()) {
+		return audio_region_add_validation_error (id, "MISSING_UPLOAD", "uploadId required",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
+	if (decoded_path.empty ()) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "decodedPath required (server-injected after upload validation; clients must not call directly)",
+		    track_id, upload_id, decoded_path, dry_run);
+	}
 
 	/* Path-injection defense: the decoded file MUST live under <sessionDir>/decoded/.
-	 * Session::session_directory().root_path() returns <sessionDir>/data (the Ardour
-	 * project dir); the decoded sibling lives at <sessionDir>/decoded/. */
-	if (decoded_path.find ("..") != std::string::npos) {
-		return jsonrpc_error (id, -32602, "PATH_OUTSIDE_SESSION: decodedPath contains '..'");
-	}
+	 * realpath() + a prefix check that includes the trailing separator together
+	 * cover traversal fully; no substring '..' check is needed and it would
+	 * reject legitimate filenames like foo..wav. */
 	char resolved[PATH_MAX];
 	if (!realpath (decoded_path.c_str (), resolved)) {
-		return jsonrpc_error (id, -32602, "UNREADABLE_FILE: decodedPath could not be resolved");
+		return audio_region_add_validation_error (id, "UNREADABLE_FILE",
+		    "decodedPath could not be resolved",
+		    track_id, upload_id, decoded_path, dry_run);
 	}
-	const std::string session_root  = session.session_directory ().root_path ();
-	const std::string decoded_root  = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
-	const std::string resolved_str  = std::string (resolved);
-	if (resolved_str.rfind (decoded_root, 0) != 0) {
-		return jsonrpc_error (id, -32602,
-		    std::string ("PATH_OUTSIDE_SESSION: resolved=") + resolved_str + " expected_prefix=" + decoded_root);
+	const std::string session_root           = session.session_directory ().root_path ();
+	const std::string decoded_root           = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
+	const std::string decoded_root_with_sep  = decoded_root + "/";
+	const std::string resolved_str           = std::string (resolved);
+	if (resolved_str.rfind (decoded_root_with_sep, 0) != 0) {
+		return audio_region_add_validation_error (id, "PATH_OUTSIDE_SESSION",
+		    std::string ("resolved=") + resolved_str + " expected_prefix=" + decoded_root_with_sep,
+		    track_id, upload_id, resolved_str, dry_run);
 	}
 
 	/* Resolve track */
 	std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (session, track_id);
-	if (!route) return jsonrpc_error (id, -32602, "ROUTE_NOT_FOUND");
+	if (!route) {
+		return audio_region_add_validation_error (id, "ROUTE_NOT_FOUND",
+		    "track not found for trackId",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
 	if (!std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route)) {
-		return jsonrpc_error (id, -32602, "NOT_AUDIO_TRACK");
+		return audio_region_add_validation_error (id, "NOT_AUDIO_TRACK",
+		    "trackId resolves to a route that is not an AudioTrack",
+		    track_id, upload_id, resolved_str, dry_run);
 	}
 
 	/* Position parsing is deferred to a follow-up task; return a structured stub.
@@ -7979,10 +8020,6 @@ dispatch_midi_region_tool_call (ARDOUR::Session& session, const std::string& too
 		response = handle_midi_region_add_tool (session, root, id);
 		return true;
 	}
-	if (tool_name == "audio_region/add") {
-		response = handle_audio_region_add_tool (session, root, id);
-		return true;
-	}
 	if (tool_name == "midi_note/add") {
 		response = handle_midi_note_add_tool (session, root, id);
 		return true;
@@ -8029,6 +8066,17 @@ dispatch_midi_region_tool_call (ARDOUR::Session& session, const std::string& too
 	}
 	if (tool_name == "region/move") {
 		response = handle_region_move_tool (session, root, id);
+		return true;
+	}
+
+	return false;
+}
+
+static bool
+dispatch_audio_region_tool_call (ARDOUR::Session& session, const std::string& tool_name, pt::ptree& root, const std::string& id, std::string& response)
+{
+	if (tool_name == "audio_region/add") {
+		response = handle_audio_region_add_tool (session, root, id);
 		return true;
 	}
 
@@ -8298,6 +8346,11 @@ MCPHttpServer::dispatch_jsonrpc (const std::string& payload) const
 		std::string midi_region_tool_response;
 		if (dispatch_midi_region_tool_call (_session, tool_name, root, id, midi_region_tool_response)) {
 			return midi_region_tool_response;
+		}
+
+		std::string audio_region_tool_response;
+		if (dispatch_audio_region_tool_call (_session, tool_name, root, id, audio_region_tool_response)) {
+			return audio_region_tool_response;
 		}
 
 		return jsonrpc_error (id, -32602, "Unknown tool name");
