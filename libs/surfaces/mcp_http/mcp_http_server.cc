@@ -6174,6 +6174,10 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	status.quality                 = ARDOUR::SrcBest;
 	status.paths.push_back (resolved_str);
 
+	/* Safety-net autosave: if the import wedges the process (libsndfile bug,
+	 * OOM, etc.), the user recovers to pre-call state. Fast — writes session XML,
+	 * does not flush audio data. */
+	session.save_state ("audio_region_add.autosave");
 	session.import_files (status);
 	if (status.cancel || status.sources.empty ()) {
 		/* Import itself failed — nothing to roll back. */
