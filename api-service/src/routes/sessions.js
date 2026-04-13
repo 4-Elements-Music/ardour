@@ -87,7 +87,12 @@ export async function sessionRoutes(app) {
       delete params.decodedPath;
 
       const reqId = params.requestId;
-      const cacheKey = reqId ? `${req.params.id}:${reqId}` : null;
+      // Include dryRun in the cache key so a dryRun + live call that happen to share a
+      // requestId don't cross-replay each other's responses (different operations,
+      // same idempotency key is a caller mistake but easy to trip into).
+      const cacheKey = reqId
+        ? `${req.params.id}:${params.dryRun ? 'dry' : 'live'}:${reqId}`
+        : null;
 
       if (cacheKey && app.requestCache && app.requestCache.has(cacheKey)) {
         return reply.send(app.requestCache.get(cacheKey));

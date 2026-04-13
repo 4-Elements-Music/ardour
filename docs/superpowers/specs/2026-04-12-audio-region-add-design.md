@@ -123,7 +123,31 @@ Three-layer flow:
 
 ### Error codes
 
-`MISSING_UPLOAD`, `UPLOAD_NOT_AUDIO`, `UNSUPPORTED_FORMAT`, `DECODE_FAILED`, `PATH_OUTSIDE_SESSION`, `ROUTE_NOT_FOUND`, `NOT_AUDIO_TRACK`, `CHANNEL_MISMATCH` (only when `channelMismatch=error`), `INSUFFICIENT_SOURCE`, `INVALID_POSITION`, `POSITION_BEFORE_ZERO`, `OVERLAP_REFUSED`, `QUOTA_EXCEEDED`, `IMPORT_FAILED`, `REGION_CREATE_FAILED`, `INTERNAL_ERROR`.
+Codes actually emitted by the v1 implementation (reconciled post-implementation):
+
+- `MISSING_UPLOAD` — `uploadId` not provided or unknown on this session.
+- `DECODE_FAILED` — audio-validator sidecar rejected or timed out.
+- `VALIDATOR_MISSING` — validator binary not configured (server-ops error).
+- `UNREADABLE_FILE` — `realpath()` failed, or libsndfile couldn't open the decoded file during `dryRun` metadata peek.
+- `PATH_OUTSIDE_SESSION` — resolved `decodedPath` falls outside `<sessionDir>/decoded/`.
+- `ROUTE_NOT_FOUND` — `trackId` did not resolve to any route.
+- `NOT_AUDIO_TRACK` — route is not an audio track.
+- `CHANNEL_MISMATCH` — file channels ≠ track channels under `channelMismatch=error`, or under `auto-track` with `allowTrackCreation=false`.
+- `INVALID_POSITION` — tagged-union `position` or `timelineLength` invalid.
+- `POSITION_BEFORE_ZERO` — negative numeric position/length value.
+- `INSUFFICIENT_SOURCE` — `sourceOffsetSamples + timelineLength > sourceLengthSamples`.
+- `OVERLAP_REFUSED` — `onOverlap=error` and the new region intersects existing regions.
+- `IMPORT_FAILED` — `Session::import_files` cancelled or returned no sources, or imported source wasn't audio.
+- `REGION_CREATE_FAILED` — `RegionFactory::create` returned null, `new_audio_track` returned empty, or `effective_track` has no playlist.
+- `REVERSE_NOT_SUPPORTED` — `reverse=true` requested; Ardour has no non-destructive region-level reverse API.
+- `INVALID_PARAMS` — param-level sanity failure (negative fades, `gainDb` non-finite or outside ±60dB, bad enum on `onOverlap`/`edgeCrossfade`/`snap`/`channelMismatch`, `repeat.count` outside [1,100], negative stride, negative `overlapCrossfadeMs`/`edgeToleranceMs`/`edgeCrossfadeMs`).
+
+**Upload-layer errors** (returned by `POST /v1/sessions/:id/upload`, not the tool call):
+- `FILE_TOO_LARGE` — per-file byte limit exceeded.
+- `SESSION_UPLOAD_QUOTA` — per-session byte quota exhausted.
+- `INVALID_FILENAME` / `INVALID_FILE_TYPE` / `FILE_EXISTS` — filename sanitization, extension allowlist, collision.
+
+**Deprecated in v1** (not emitted by any code path): `UPLOAD_NOT_AUDIO`, `UNSUPPORTED_FORMAT`, `QUOTA_EXCEEDED`, `INTERNAL_ERROR`.
 
 ## Security & Robustness Requirements
 
