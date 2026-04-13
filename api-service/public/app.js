@@ -186,6 +186,13 @@ const TOOL_OVERRIDES = {
     },
     selects: ['pluginIndex', 'parameterIndex'],
   },
+  audio_region_add: {
+    hide: ['decodedPath'],
+    dynamic: {
+      trackId:  { source: 'tracks',  label: 'Track' },
+      uploadId: { source: 'uploads', label: 'Audio file' },
+    },
+  },
 };
 
 async function fetchTracksRaw() {
@@ -214,6 +221,17 @@ async function fetchPluginsRaw() {
     (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
 }
 
+async function fetchUploads() {
+  if (!state.sessionId) return [];
+  const res = await api('GET', `/v1/sessions/${state.sessionId}`, null, { silent: true });
+  const uploads = res.body?.uploads || [];
+  return uploads.map(u => ({
+    upload_id: u.upload_id,
+    filename: u.filename,
+    bytes: u.bytes,
+  }));
+}
+
 async function trackHasInstrument(trackId) {
   const res = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
     { tool: 'track_get_info', params: { id: trackId } }, { silent: true });
@@ -239,9 +257,11 @@ async function renderParamForm(toolName) {
   await Promise.all([...sourceNeeded].map(async (src) => {
     if (src === 'tracks')  sourceData.tracks  = await fetchTracksRaw();
     if (src === 'plugins') sourceData.plugins = await fetchPluginsRaw();
+    if (src === 'uploads') sourceData.uploads = await fetchUploads();
   }));
   const formatTrack  = t => ({ value: t.id, label: `${t.name} (${t.type || '?'})` });
   const formatPlugin = p => ({ value: p.pluginId, label: `[${p.type}] ${p.category ? p.category + ' / ' : ''}${p.name} — ${p.creator}` });
+  const formatUpload = u => ({ value: u.upload_id, label: `${u.filename} (${(u.bytes / 1024).toFixed(1)} KB)` });
   const HINTS = {
     strictIo: 'If true, lock the track\'s channel count to inputChannels/outputChannels (no auto-resize on connect).',
     insert: 'Where to place the new track: end of list, or before/after the anchor track.',
@@ -266,7 +286,9 @@ async function renderParamForm(toolName) {
       blank.value = ''; blank.textContent = '(select…)';
       input.appendChild(blank);
       const raw = sourceData[dynSpec.source] || [];
-      const fmt = dynSpec.source === 'tracks' ? formatTrack : formatPlugin;
+      const fmt = dynSpec.source === 'tracks' ? formatTrack
+                : dynSpec.source === 'uploads' ? formatUpload
+                : formatPlugin;
       for (const o of raw.map(fmt)) {
         const opt = document.createElement('option');
         opt.value = o.value; opt.textContent = o.label;
@@ -478,6 +500,45 @@ document.getElementById('log-filter').oninput = (e) => {
   for (const entry of document.querySelectorAll('#log .log-entry')) {
     const text = entry.innerText.toLowerCase();
     entry.style.display = (needle === '' || text.includes(needle)) ? '' : 'none';
+  }
+};
+
+document.getElementById('upload-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!state.sessionId) {
+    alert('Pick a session first (left panel).');
+    e.target.value = '';
+    return;
+  }
+  const status = document.getElementById('upload-status');
+  status.textContent = `Uploading ${file.name} (${(file.size / 1024).toFixed(1)} KB)…`;
+
+  const form = new FormData();
+  form.append('file', file, file.name);
+  try {
+    const res = await fetch(`/v1/sessions/${state.sessionId}/upload`, {
+      method: 'POST',
+      body: form,
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      status.textContent = `Upload failed: ${body.error_code || res.status} — ${body.message || body.error || ''}`;
+      status.style.color = '#c00';
+      return;
+    }
+    status.textContent = `Uploaded → upload_id: ${body.upload_id} (${body.bytes} bytes)`;
+    status.style.color = '#060';
+    // If the current tool is audio_region_add, refresh the form so the new upload appears in the dropdown.
+    const sel = document.getElementById('tool-select');
+    if (sel && sel.value === 'audio_region_add') {
+      await renderParamForm(sel.value);
+    }
+  } catch (err) {
+    status.textContent = `Upload error: ${err.message}`;
+    status.style.color = '#c00';
+  } finally {
+    e.target.value = ''; // allow re-upload of same filename
   }
 };
 
