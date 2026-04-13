@@ -54,3 +54,7 @@ Log ring buffer is bounded to 10k lines, but the `stderrTail` array is separate 
 
 ### GUI/headless session migration
 Can't convert a headless session to GUI after creation. Would need to kill luasession, launch Ardour GUI on the saved session file. Future feature.
+
+## Audio region follow-ups
+
+- [ ] F6: Replace direct-exec audio-validator launch with proper sandboxing on macOS. `sandbox-exec` is Apple-deprecated and hangs children in UE state on Darwin 24+. Investigate App Sandbox via XPC service or `sandbox_init()` with hand-tuned operations. Linux: wire up landlock. Process isolation alone handles the primary threat (crash containment); FS sandboxing is defense-in-depth.
