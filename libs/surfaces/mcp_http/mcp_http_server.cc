@@ -6331,6 +6331,107 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 		    track_id, upload_id, resolved_str, dry_run);
 	}
 
+	/* onOverlap policy. Runs AFTER channel-mismatch (effective_track resolved) and
+	 * BEFORE begin_reversible_command, so the 'error' path has no mutation to undo. */
+	const std::string overlap_policy = root.get<std::string> ("params.arguments.onOverlap", "error");
+	const int         xfade_ms       = root.get<int>         ("params.arguments.overlapCrossfadeMs", 10);
+	if (xfade_ms < 0) {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "overlapCrossfadeMs must be >= 0 (got " + std::to_string (xfade_ms) + ")",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+	if (overlap_policy != "error" && overlap_policy != "trim-existing" &&
+	    overlap_policy != "crossfade" && overlap_policy != "layer") {
+		return audio_region_add_validation_error (id, "INVALID_PARAMS",
+		    "onOverlap must be one of: error | trim-existing | crossfade | layer (got '" + overlap_policy + "')",
+		    track_id, upload_id, resolved_str, dry_run);
+	}
+
+	const Temporal::timepos_t new_start {samplepos_t (start_sample)};
+	const Temporal::timepos_t new_end   {samplepos_t (start_sample + timeline_length)};
+
+	std::vector<std::shared_ptr<ARDOUR::Region>> overlapping;
+	{
+		std::shared_ptr<ARDOUR::RegionList> all = pl->region_list ();
+		if (all) {
+			for (auto const& r : *all) {
+				if (!r) continue;
+				if (r->position () < new_end && r->end () > new_start) {
+					overlapping.push_back (r);
+				}
+			}
+		}
+	}
+
+	std::ostringstream affected_json;
+	affected_json << "[";
+	std::string overlap_action = "none";
+
+	if (!overlapping.empty ()) {
+		if (overlap_policy == "error") {
+			std::ostringstream ids;
+			ids << "[";
+			bool first = true;
+			for (auto const& r : overlapping) {
+				if (!first) ids << ",";
+				first = false;
+				ids << "\"" << json_escape (r->id ().to_s ()) << "\"";
+			}
+			ids << "]";
+			return audio_region_add_validation_error (id, "OVERLAP_REFUSED",
+			    "new region [" + std::to_string (start_sample) + ".."
+			      + std::to_string (start_sample + timeline_length) + ") overlaps "
+			      + std::to_string (overlapping.size ()) + " existing region(s); "
+			      "set onOverlap='trim-existing'|'crossfade'|'layer' or pick a different position",
+			    track_id, upload_id, resolved_str, dry_run);
+		}
+
+		overlap_action = (overlap_policy == "layer") ? "layered"
+		                : (overlap_policy == "crossfade") ? "crossfaded"
+		                : "trimmed-existing";
+
+		const ARDOUR::samplecnt_t xfade_samples =
+		    (ARDOUR::samplecnt_t) ((double) xfade_ms / 1000.0 * (double) session.sample_rate ());
+
+		bool first_affected = true;
+		for (auto const& r : overlapping) {
+			if (!first_affected) affected_json << ",";
+			first_affected = false;
+			affected_json << "{\"id\":\"" << json_escape (r->id ().to_s ()) << "\",";
+
+			if (overlap_policy == "trim-existing") {
+				const ARDOUR::samplepos_t r_pos = r->position ().samples ();
+				const ARDOUR::samplepos_t r_end = r->end ().samples ();
+				if (r_pos < (ARDOUR::samplepos_t) start_sample && r_end > (ARDOUR::samplepos_t) start_sample &&
+				    r_end <= (ARDOUR::samplepos_t) (start_sample + timeline_length)) {
+					r->trim_end (new_start);
+					affected_json << "\"trim\":\"end_before_new_start\"";
+				} else if (r_pos >= (ARDOUR::samplepos_t) start_sample &&
+				           r_pos < (ARDOUR::samplepos_t) (start_sample + timeline_length) &&
+				           r_end > (ARDOUR::samplepos_t) (start_sample + timeline_length)) {
+					r->trim_front (new_end);
+					affected_json << "\"trim\":\"front_after_new_end\"";
+				} else {
+					/* R fully contains new, or R fully inside new — shrink R end to new_start. */
+					r->trim_end (new_start);
+					affected_json << "\"trim\":\"contained_shrink_to_new_start\"";
+				}
+			} else if (overlap_policy == "crossfade") {
+				std::shared_ptr<ARDOUR::AudioRegion> ar_existing =
+				    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (r);
+				if (ar_existing) {
+					ar_existing->set_fade_out_length (xfade_samples);
+				}
+				affected_json << "\"crossfade\":" << xfade_samples;
+			} else {
+				affected_json << "\"action\":\"layered\"";
+			}
+
+			affected_json << "}";
+		}
+	}
+	affected_json << "]";
+
 	/* ----- Parse optional region-property overrides ----- */
 	const int64_t fade_in_samples  = root.get<int64_t> ("params.arguments.fadeInSamples",  64);
 	const int64_t fade_out_samples = root.get<int64_t> ("params.arguments.fadeOutSamples", 64);
@@ -6418,6 +6519,8 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	    << "\"gainDb\":"              << gain_db                             << ","
 	    << "\"polarityInvert\":"      << (polarity_invert  ? "true" : "false") << ","
 	    << "\"reverse\":"             << (reverse_playback ? "true" : "false") << ","
+	    << "\"overlapAction\":\""     << json_escape (overlap_action)        << "\","
+	    << "\"overlappingRegionsAffected\":" << affected_json.str ()         << ","
 	    << "\"dryRun\":"              << (dry_run ? "true" : "false")
 	    << "}}";
 	return jsonrpc_result (id, out.str ());
