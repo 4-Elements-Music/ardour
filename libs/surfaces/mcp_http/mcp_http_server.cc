@@ -37,6 +37,8 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <glibmm/miscutils.h>
+
 #include "pbd/basename.h"
 #include "pbd/controllable.h"
 #include "pbd/enumwriter.h"
@@ -70,6 +72,7 @@
 #include "ardour/route.h"
 #include "ardour/selection.h"
 #include "ardour/session.h"
+#include "ardour/session_directory.h"
 #include "ardour/session_event.h"
 #include "ardour/source.h"
 #include "ardour/stripable.h"
@@ -174,7 +177,8 @@ canonical_tool_name (std::string tool_name)
 		"region",
 		"plugin",
 		"midi_region",
-		"midi_note"
+		"midi_note",
+		"audio_region"
 	};
 
 	for (size_t i = 0; i < (sizeof (known_groups) / sizeof (known_groups[0])); ++i) {
@@ -5903,6 +5907,61 @@ dispatch_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop,
 }
 
 static std::string
+handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
+{
+	/* Required inputs */
+	const std::string track_id     = root.get<std::string> ("params.arguments.trackId",     "");
+	const std::string upload_id    = root.get<std::string> ("params.arguments.uploadId",    "");
+	const std::string decoded_path = root.get<std::string> ("params.arguments.decodedPath", "");
+	const bool        dry_run      = root.get<bool>        ("params.arguments.dryRun",      false);
+
+	if (track_id.empty ())     return jsonrpc_error (id, -32602, "trackId required");
+	if (upload_id.empty ())    return jsonrpc_error (id, -32602, "uploadId required");
+	if (decoded_path.empty ()) return jsonrpc_error (id, -32602, "decodedPath required (server-injected after upload validation; clients must not call directly)");
+
+	/* Path-injection defense: the decoded file MUST live under <sessionDir>/decoded/.
+	 * Session::session_directory().root_path() returns <sessionDir>/data (the Ardour
+	 * project dir); the decoded sibling lives at <sessionDir>/decoded/. */
+	if (decoded_path.find ("..") != std::string::npos) {
+		return jsonrpc_error (id, -32602, "PATH_OUTSIDE_SESSION: decodedPath contains '..'");
+	}
+	char resolved[PATH_MAX];
+	if (!realpath (decoded_path.c_str (), resolved)) {
+		return jsonrpc_error (id, -32602, "UNREADABLE_FILE: decodedPath could not be resolved");
+	}
+	const std::string session_root  = session.session_directory ().root_path ();
+	const std::string decoded_root  = Glib::build_filename (Glib::path_get_dirname (session_root), "decoded");
+	const std::string resolved_str  = std::string (resolved);
+	if (resolved_str.rfind (decoded_root, 0) != 0) {
+		return jsonrpc_error (id, -32602,
+		    std::string ("PATH_OUTSIDE_SESSION: resolved=") + resolved_str + " expected_prefix=" + decoded_root);
+	}
+
+	/* Resolve track */
+	std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (session, track_id);
+	if (!route) return jsonrpc_error (id, -32602, "ROUTE_NOT_FOUND");
+	if (!std::dynamic_pointer_cast<ARDOUR::AudioTrack> (route)) {
+		return jsonrpc_error (id, -32602, "NOT_AUDIO_TRACK");
+	}
+
+	/* Position parsing is deferred to a follow-up task; return a structured stub.
+	 * This stub proves the dispatcher wiring, path validation, and track lookup
+	 * all work end-to-end. dryRun is accepted and reflected in the response. */
+	std::ostringstream out;
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"stub\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":false,"
+	    << "\"failedAt\":\"validation\","
+	    << "\"error\":{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"audio_region_add v1 handler skeleton; import logic pending in subsequent tasks\"},"
+	    << "\"trackId\":\"" << json_escape (track_id) << "\","
+	    << "\"uploadId\":\"" << json_escape (upload_id) << "\","
+	    << "\"decodedPath\":\"" << json_escape (resolved_str) << "\","
+	    << "\"dryRun\":" << (dry_run ? "true" : "false")
+	    << "}}";
+	return jsonrpc_result (id, out.str ());
+}
+
+static std::string
 handle_midi_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
 	ARDOUR::Session& _session = session;
@@ -7918,6 +7977,10 @@ dispatch_midi_region_tool_call (ARDOUR::Session& session, const std::string& too
 {
 	if (tool_name == "midi_region/add") {
 		response = handle_midi_region_add_tool (session, root, id);
+		return true;
+	}
+	if (tool_name == "audio_region/add") {
+		response = handle_audio_region_add_tool (session, root, id);
 		return true;
 	}
 	if (tool_name == "midi_note/add") {
