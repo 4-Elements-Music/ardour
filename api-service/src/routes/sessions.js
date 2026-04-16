@@ -81,6 +81,272 @@ export async function sessionRoutes(app) {
     let { tool, params } = req.body || {};
     if (!tool) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'tool required' });
 
+    // Parse a session/lua_eval result tolerantly. The C++ surface sometimes emits inner JSON
+    // with literal NL inside string values, which is invalid JSON — escape control chars first.
+    const parseLuaEvalResult = (rpcResult) => {
+      const payload = rpcResult?.result ?? rpcResult;
+      const text = payload?.content?.[0]?.text;
+      try {
+        const fixed = String(text || '').replace(/[\x00-\x1f]/g, (c) => {
+          if (c === '\n') return '\\n';
+          if (c === '\r') return '\\r';
+          if (c === '\t') return '\\t';
+          return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+        });
+        return { inner: JSON.parse(fixed), payload };
+      } catch {
+        return { inner: null, payload };
+      }
+    };
+    // Parse `k=v` lines from Lua output into an object.
+    const parseKv = (output) => {
+      const out = {};
+      for (const line of String(output || '').split('\n')) {
+        const i = line.indexOf('=');
+        if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1);
+      }
+      return out;
+    };
+
+    if (tool === 'preset/search') {
+      try {
+        const results = app.presetStore.search(params || {});
+        return { results, count: results.length };
+      } catch (e) {
+        return reply.code(500).send({ error_code: 'PRESET_SEARCH_FAILED', message: e.message });
+      }
+    }
+
+    if (tool === 'preset/load') {
+      const track = params?.track;
+      const uri = params?.ardour_uri || null;
+      const pluginParam = params?.plugin || null;
+      const presetName = params?.preset_name || null;
+      if (!track) return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'track required' });
+      if (!uri && !(pluginParam && presetName)) {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'either ardour_uri or (plugin + preset_name) required' });
+      }
+      const slot = (params.slot ?? 0) | 0;
+      const replace = !!params.replace;
+
+      let pluginName, pluginType, pluginUid;
+      if (uri) {
+        const cap = app.presetStore.captureByUri(uri);
+        if (!cap) return reply.code(404).send({ error_code: 'URI_UNKNOWN', message: `No capture record for ${uri} — call preset/capture first or resolve by name instead.` });
+        pluginName = cap.plugin;
+        pluginType = cap.plugin_type;
+        pluginUid = cap.plugin_uid;
+      } else {
+        // Resolve by name via preset_by_label. We don't know FUID yet — look up via fuids map.
+        pluginName = pluginParam;
+        const fuids = app.presetStore.knownFuids ? app.presetStore.knownFuids() : {};
+        pluginUid = fuids[`${pluginName}`]?.uid || null;
+        pluginType = fuids[`${pluginName}`]?.type ?? 7; // default VST3
+      }
+
+      const luaStr = (v) => JSON.stringify(String(v));
+      const code = `
+local TRACK = ${luaStr(track)}
+local SLOT = ${slot}
+local URI = ${luaStr(uri || '')}
+local PRESET_NAME = ${luaStr(presetName || '')}
+local PLUGIN_NAME = ${luaStr(pluginName)}
+local PLUGIN_TYPE = ${pluginType | 0}
+local PLUGIN_UID = ${luaStr(pluginUid || '')}
+local REPLACE = ${replace ? 'true' : 'false'}
+
+local route = nil
+for r in Session:get_routes():iter() do if r:name() == TRACK then route = r; break end end
+if not route then print("ERR no_route") return end
+
+local function current_plugin()
+  local p = route:nth_plugin(SLOT)
+  if not p or p:isnil() then return nil, nil, nil end
+  local ins = p:to_insert()
+  if not ins or ins:isnil() then return nil, nil, nil end
+  local pl = ins:plugin(0)
+  if not pl or pl:isnil() then return nil, nil, nil end
+  return p, ins, pl
+end
+
+-- Decide: reuse existing, or replace. Identity check matches UID when known, else plugin name.
+local proc, insert, plugin = current_plugin()
+local reused = false
+if plugin and not REPLACE then
+  local info = plugin:get_info()
+  if info then
+    if PLUGIN_UID ~= "" then
+      if info.unique_id == PLUGIN_UID then reused = true end
+    elseif info.name == PLUGIN_NAME then
+      reused = true
+    end
+  end
+end
+
+if not reused then
+  if insert then
+    local removed = route:remove_processor(insert, nil, false)
+    if removed ~= 0 then print("WARN remove_rc="..tostring(removed)) end
+  end
+  local new_proc = ARDOUR.LuaAPI.new_plugin(Session, PLUGIN_NAME, PLUGIN_TYPE, "")
+  if not new_proc or new_proc:isnil() then print("ERR new_plugin_nil") return end
+  local add_rc = route:add_processor_by_index(new_proc, SLOT, nil, true)
+  if add_rc ~= 0 then print("ERR add_rc="..tostring(add_rc)) return end
+  proc, insert, plugin = current_plugin()
+  if not plugin then print("ERR fresh_plugin_missing") return end
+end
+
+-- Resolve preset record: prefer URI, else look up by label.
+local rec
+if URI ~= "" then
+  rec = plugin:preset_by_uri(URI)
+else
+  rec = plugin:preset_by_label(PRESET_NAME)
+end
+if not rec then print("ERR preset_not_found") return end
+if not rec.valid then print("ERR preset_invalid") return end
+local ok, loaded = pcall(function() return plugin:load_preset(rec) end)
+if not ok then print("ERR load_preset:"..tostring(loaded)) return end
+
+print("OK")
+print("reused="..tostring(reused))
+print("plugin="..plugin:name())
+print("loaded="..tostring(loaded))
+print("resolved_uri="..tostring(rec.uri))
+print("resolved_label="..tostring(rec.label))
+local lp = plugin:last_preset()
+print("last_uri="..tostring(lp.uri))
+print("last_label="..tostring(lp.label))
+`.trim();
+
+      try {
+        const rpc = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);
+        const { inner, payload } = parseLuaEvalResult(rpc);
+        if (!inner || !inner.success) {
+          return reply.code(500).send({ error_code: 'LOAD_FAILED', message: inner?.error || 'lua_eval failed', payload });
+        }
+        const lines = String(inner.output || '').split('\n').filter(Boolean);
+        if (lines[0] && lines[0].startsWith('ERR ')) {
+          return reply.code(400).send({ error_code: 'LOAD_FAILED', message: lines[0].slice(4), output: inner.output });
+        }
+        const fields = parseKv(lines.slice(1).join('\n'));
+        return {
+          success: true,
+          track,
+          plugin: fields.plugin,
+          ardour_uri: uri,
+          reused: fields.reused === 'true',
+          loaded: fields.loaded === 'true',
+          last_uri: fields.last_uri,
+          last_label: fields.last_label,
+        };
+      } catch (e) {
+        return reply.code(500).send({ error_code: 'LOAD_FAILED', message: e.message });
+      }
+    }
+
+    if (tool === 'preset/capture') {
+      // Auto-detect track when not passed: use the currently-selected route in Ardour.
+      const trackParam = (params || {}).track;
+      const slot = (params.slot ?? 0) | 0;
+      const label = params.label || `cap_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+      const presetNameParam = params.presetName || null;
+      const notes = params.notes || null;
+
+      // Escape for embedding into Lua string literal.
+      const luaStr = (s) => JSON.stringify(String(s));
+      const code = `
+local TRACK = ${trackParam ? luaStr(trackParam) : '""'}
+local SLOT = ${slot}
+local LABEL = ${luaStr(label)}
+
+local route = nil
+if TRACK == "" then
+  -- auto-detect: first selected route
+  route = Session:route_by_selected_count(0)
+  if route and route:isnil() then route = nil end
+else
+  for r in Session:get_routes():iter() do if r:name() == TRACK then route = r; break end end
+end
+if not route then print("ERR no_route") return end
+
+local proc = route:nth_plugin(SLOT)
+if not proc or proc:isnil() then print("ERR no_plugin") return end
+local ins = proc:to_insert()
+if not ins or ins:isnil() then print("ERR not_plugin_insert") return end
+local pl = ins:plugin(0)
+if not pl or pl:isnil() then print("ERR plugin_nil") return end
+local info = pl:get_info()
+local ok, cap = pcall(function() return pl:save_preset(LABEL) end)
+if not ok then print("ERR save_preset:"..tostring(cap)) return end
+if not cap.valid then print("ERR capture_invalid") return end
+print("OK")
+print("track="..route:name())
+print("plugin="..pl:name())
+print("unique_id="..info.unique_id)
+print("plugin_type="..tostring(info.type))
+print("uri="..cap.uri)
+print("label="..cap.label)
+`.trim();
+
+      try {
+        const result = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);
+        // result.content[0].text = JSON string with {success, output, error}
+        const payload = result.result ?? result;
+        const innerText = payload?.content?.[0]?.text;
+        let inner = null;
+        // C++ session/lua_eval emits inner JSON with literal NL inside string values (bug
+        // in the double-escaping path). Tolerate that by escaping raw control chars before parse.
+        try {
+          const fixed = String(innerText || '').replace(/[\x00-\x1f]/g, (c) => {
+            if (c === '\n') return '\\n';
+            if (c === '\r') return '\\r';
+            if (c === '\t') return '\\t';
+            return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+          });
+          inner = JSON.parse(fixed);
+        } catch {}
+        if (!inner || !inner.success) {
+          return reply.code(500).send({ error_code: 'CAPTURE_FAILED', message: inner?.error || 'lua_eval failed', payload });
+        }
+        const lines = (inner.output || '').split('\n').filter(Boolean);
+        if (lines[0] && lines[0].startsWith('ERR ')) {
+          return reply.code(400).send({ error_code: 'CAPTURE_FAILED', message: lines[0].slice(4), output: inner.output });
+        }
+        const fields = {};
+        for (const l of lines.slice(1)) {
+          const i = l.indexOf('=');
+          if (i > 0) fields[l.slice(0, i)] = l.slice(i + 1);
+        }
+        if (!fields.uri) {
+          return reply.code(500).send({ error_code: 'CAPTURE_FAILED', message: 'uri missing from lua output', output: inner.output });
+        }
+        // Default preset name: "<Plugin> — <timestamp>" if user didn't supply one.
+        const autoName = `${fields.plugin} — ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`;
+        const presetName = presetNameParam || autoName;
+        app.presetStore.recordCapture({
+          plugin: fields.plugin,
+          preset_name: presetName,
+          ardour_uri: fields.uri,
+          ardour_label: fields.label,
+          plugin_uid: fields.unique_id,
+          plugin_type: fields.plugin_type ? parseInt(fields.plugin_type, 10) : null,
+          notes,
+        });
+        return {
+          success: true,
+          track: fields.track,
+          plugin: fields.plugin,
+          preset_name: presetName,
+          ardour_uri: fields.uri,
+          ardour_label: fields.label,
+          plugin_uid: fields.unique_id,
+        };
+      } catch (e) {
+        return reply.code(500).send({ error_code: 'CAPTURE_FAILED', message: e.message });
+      }
+    }
+
     if (tool === 'audio_region_add') {
       // Client MUST NOT supply decodedPath — it's server-injected.
       params = { ...(params || {}) };

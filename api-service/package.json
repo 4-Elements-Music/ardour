@@ -10,9 +10,12 @@
     "extract-tools": "node scripts/extract-tools.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.89.0",
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^9.1.0",
+    "@msgpack/msgpack": "^3.1.3",
     "ajv": "^8.18.0",
+    "better-sqlite3": "^12.9.0",
     "fastify": "^5.0.0",
     "p-queue": "^9.1.2",
     "uuid": "^10.0.0"

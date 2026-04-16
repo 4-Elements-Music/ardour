@@ -2278,6 +2278,186 @@
       }
     },
     {
+      "name": "audio_region_add",
+      "title": "Add Audio Region",
+      "description": "Place an uploaded audio file as a region on a track. Handles channel mismatch, fades, overlap/edge-crossfade, snap, repeat, and atomic rollback. v1: no time-stretch/pitch-shift (see audio_region_stretch v2). See docs/superpowers/specs/2026-04-12-audio-region-add-design.md for the full contract.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "trackId": {
+            "type": "string"
+          },
+          "uploadId": {
+            "type": "string"
+          },
+          "decodedPath": {
+            "type": "string",
+            "description": "Server-injected absolute path resolved from uploadId; clients MUST NOT supply."
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "samples",
+                  "seconds",
+                  "beats",
+                  "bars+beats"
+                ]
+              },
+              "value": {}
+            },
+            "required": [
+              "unit",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "sourceOffsetSamples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timelineLength": {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "samples",
+                  "seconds",
+                  "beats",
+                  "bars+beats"
+                ]
+              },
+              "value": {}
+            },
+            "required": [
+              "unit",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "copyToSession": {
+            "type": "boolean"
+          },
+          "channelMismatch": {
+            "type": "string",
+            "enum": [
+              "error",
+              "truncate",
+              "auto-track"
+            ]
+          },
+          "allowTrackCreation": {
+            "type": "boolean"
+          },
+          "sampleRateConversion": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "strict",
+              "none"
+            ]
+          },
+          "srcQuality": {
+            "type": "string",
+            "enum": [
+              "best",
+              "medium",
+              "fast"
+            ]
+          },
+          "fadeInSamples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fadeOutSamples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gainDb": {
+            "type": "number"
+          },
+          "polarityInvert": {
+            "type": "boolean"
+          },
+          "reverse": {
+            "type": "boolean"
+          },
+          "snap": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bar",
+              "beat",
+              "grid"
+            ]
+          },
+          "onOverlap": {
+            "type": "string",
+            "enum": [
+              "error",
+              "trim-existing",
+              "crossfade",
+              "layer"
+            ]
+          },
+          "overlapCrossfadeMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "edgeCrossfade": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "none"
+            ]
+          },
+          "edgeToleranceMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "edgeCrossfadeMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "repeat": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "strideBeats": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "preserveOriginalTimestamp": {
+            "type": "boolean"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "trackId",
+          "uploadId",
+          "position"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "midi_note_add",
       "title": "Add MIDI Note",
       "description": "Add one MIDI note to an existing MIDI region at region beats, sample, or bar+beat position.",
@@ -2722,6 +2902,58 @@
         "required": [
           "code"
         ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "preset/search",
+      "title": "Search Preset Index",
+      "description": "Full-text search + tag filters over the local preset index. Returns matches with ardour_uri (when captured) so the agent can invoke preset/load. Requires the local SQLite index at ~/.ardour-preset-index/presets.db (built by scripts/index-presets.js).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query":        { "type": "string", "description": "Free-text search across name, bank, category, author, description, tags." },
+          "plugin":       { "type": "string", "description": "Restrict to a specific plugin (e.g., 'Diva', 'Pigments', 'Kontakt 8')." },
+          "category":     { "type": "string", "description": "Restrict to a category (e.g., 'Bass', 'Pads')." },
+          "axis":         { "type": "string", "enum": ["type", "subtype", "mode", "character", "mood"], "description": "Tag axis to filter on (paired with 'tag')." },
+          "tag":          { "type": "string", "description": "Tag value on the given axis (e.g., axis='mode', tag='Analog')." },
+          "capturedOnly": { "type": "boolean", "description": "If true, only return presets with a captured Ardour URI (loadable headless)." },
+          "limit":        { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "preset/load",
+      "title": "Load Preset on Track",
+      "description": "Recall a preset onto a track. Either pass `ardour_uri` (from a prior capture) or `{plugin, preset_name}` to resolve via preset_by_label on a fresh/reused instance. Works headless — no GUI interaction.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "track":       { "type": "string", "description": "Track (route) name to load the preset onto." },
+          "ardour_uri":  { "type": "string", "description": "Ardour preset URI (from preset/search)." },
+          "plugin":      { "type": "string", "description": "Plugin name (if resolving by name instead of URI). Example: 'Diva'." },
+          "preset_name": { "type": "string", "description": "Preset name — resolved via preset_by_label on a fresh plugin instance." },
+          "slot":        { "type": "integer", "default": 0, "description": "Plugin slot index on the route." },
+          "replace":     { "type": "boolean", "default": false, "description": "Force a fresh plugin instance even if identity matches." }
+        },
+        "required": ["track"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "preset/capture",
+      "title": "Capture Current Preset",
+      "description": "Snapshots the current plugin state on a track as an Ardour user preset (save_preset) and records its URI in the preset index. After this, preset/load can restore it on any fresh plugin instance. Both `track` and `presetName` are optional: omit `track` to auto-detect the currently-selected track in Ardour, and omit `presetName` to auto-name as '<Plugin> — <timestamp>'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "track":       { "type": "string", "description": "Track (route) name. Omit to auto-use Ardour's currently-selected track." },
+          "slot":        { "type": "integer", "default": 0, "description": "Plugin slot index on the route (0 = first)." },
+          "label":       { "type": "string", "description": "Optional label for the captured preset. If omitted, one is generated." },
+          "presetName":  { "type": "string", "description": "Human-friendly preset name. Omit to auto-name as '<Plugin> — <timestamp>'." },
+          "notes":       { "type": "string" }
+        },
         "additionalProperties": false
       }
     }

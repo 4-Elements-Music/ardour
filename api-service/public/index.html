@@ -31,6 +31,26 @@
         <input type="file" id="upload-file" accept="audio/wav,audio/mpeg,audio/flac,audio/aiff,audio/ogg,.wav,.mp3,.flac,.aiff,.ogg,.mid,.midi" />
         <span id="upload-status" style="margin-left: 8px; color: #666;"></span>
       </div>
+      <div id="presets-section">
+        <div class="presets-header">
+          <span>Presets</span>
+          <button id="btn-preset-capture" title="Capture current plugin state on the target track">★ Capture current</button>
+        </div>
+        <div class="presets-controls">
+          <input id="preset-track" placeholder="target track name (e.g. 'Diva')" />
+          <input id="preset-query" placeholder="search: warm bass, airy pad, ..." />
+          <label class="preset-captured-only"><input type="checkbox" id="preset-captured-only"> captured only</label>
+          <button id="btn-preset-search">Search</button>
+        </div>
+        <div id="preset-results"></div>
+      </div>
+      <div id="favorites-section">
+        <div class="favorites-header">
+          <span>Favorites</span>
+          <button id="btn-save-favorite" title="Save current tool + params as a favorite">★ Save current</button>
+        </div>
+        <div id="favorites-list"></div>
+      </div>
       <select id="tool-select"><option>Loading…</option></select>
       <div id="param-form"></div>
       <button id="btn-send">Send</button>

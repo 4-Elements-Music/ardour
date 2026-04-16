@@ -1,0 +1,519 @@
+{
+  "_comment": "Map of plugin display name to VST3 FUID + type (7=VST3). Auto-extended by scripts/refresh-nks-index.js.",
+  "Diva": {
+    "uid": "D39D5B69D6AF42FA1234567844695661",
+    "type": 7,
+    "vendor": "u-he"
+  },
+  "Kontakt 8": {
+    "uid": "5653544E694B386B6F6E74616B742038",
+    "type": 7,
+    "vendor": "Native Instruments"
+  },
+  "Analog Lab V": {
+    "uid": "4172747541564953416C617650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Komplete Kontrol": {
+    "uid": "5653544E694B4B6B6F6D706C65746520",
+    "type": 7,
+    "vendor": "Native Instruments"
+  },
+  "Pigments": {
+    "uid": "41727475415649534B61743150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Synclavier V": {
+    "uid": "41727475415649535379636C50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "ARP 2600 V3": {
+    "uid": "41727475415649534152503350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented STRINGS": {
+    "uid": "41727475415649534153747250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented VOICES": {
+    "uid": "41727475415649534156637350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Modular V3": {
+    "uid": "41727475415649534D4F443350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Absynth 6": {
+    "uid": "ABCDEF019182FAEB2D4E492D4E69245A",
+    "type": 7,
+    "vendor": "Native Instruments"
+  },
+  "CZ V": {
+    "uid": "41727475415649534373437A50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "DX7 V": {
+    "uid": "41727475415649534478373150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "OP-Xa V": {
+    "uid": "41727475415649534F42586150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Matrix-12 V2": {
+    "uid": "41727475415649534D61743250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "MiniFreak V": {
+    "uid": "41727475415649534D6E465650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "CMI V": {
+    "uid": "4172747541564953434D497650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Paradise Guitar Studio": {
+    "uid": "ABCDEF019182FAEB5541447855493234",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Jup-8 V4": {
+    "uid": "41727475415649534A55503450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented BRASS": {
+    "uid": "41727475415649534142727350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented GRAND PIANO": {
+    "uid": "41727475415649534147506E50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented WOODWINDS": {
+    "uid": "41727475415649534157647750726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Synthi V": {
+    "uid": "4172747541564953534E544850726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Opal Morphing Synth": {
+    "uid": "ABCDEF019182FAEB5541447855493031",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Buchla Easel V": {
+    "uid": "41727475415649534275456150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Vocoder V": {
+    "uid": "4172747541564953566F636F50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Emulator II V": {
+    "uid": "4172747541564953456D753150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Pure LoFi": {
+    "uid": "417274754156495350724C4650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Synthx V": {
+    "uid": "41727475415649535354485850726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Jup-8000 V": {
+    "uid": "41727475415649534A55503850726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Prophet-VS V": {
+    "uid": "41727475415649535052565350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "KORG MS-20 V": {
+    "uid": "41727475415649534B4D535650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented MALLETS": {
+    "uid": "417274754156495341554D4150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Augmented YANGTZE": {
+    "uid": "41727475415649534159747A50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "CS-80 V4": {
+    "uid": "41727475415649534353563450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "SQ80 V": {
+    "uid": "41727475415649535351383050726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "VOX Continental V2": {
+    "uid": "4172747541564953566F783250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx PolyMAX Synth": {
+    "uid": "ABCDEF019182FAEB5541447855493036",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Jun-6 V": {
+    "uid": "41727475415649534A756E3150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "SEM V3": {
+    "uid": "417274754156495353454D3350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "MiniBrute V": {
+    "uid": "41727475415649534D42525450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Mini V4": {
+    "uid": "41727475415649534D494E3450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Acid V": {
+    "uid": "41727475415649535433303350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Farfisa V": {
+    "uid": "41727475415649534661726650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Solina V2": {
+    "uid": "4172747541564953536F6C3250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Sound City Studios": {
+    "uid": "ABCDEF019182FAEB5541447855334446",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Prophet-5 V": {
+    "uid": "417274754156495350524F3550726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Moog Minimoog Synth": {
+    "uid": "ABCDEF019182FAEB5541447855493030",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Piano V3": {
+    "uid": "41727475415649535069613350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Waterfall B3 Organ": {
+    "uid": "ABCDEF019182FAEB5541447855493033",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "UADx Galaxy Tape Echo": {
+    "uid": "ABCDEF019182FAEB554144785533424B",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "UADx Verve Analog Machines": {
+    "uid": "ABCDEF019182FAEB5541447855493132",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Clavinet V": {
+    "uid": "4172747541564953436C617650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Stage-73 V2": {
+    "uid": "41727475415649535374673250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Mellotron V": {
+    "uid": "41727475415649534D4C544E50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Wurli V3": {
+    "uid": "41727475415649535755523350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "B-3 V2": {
+    "uid": "4172747541564953546E573250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "CP-70 V": {
+    "uid": "41727475415649534350373050726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Brigade Chorus": {
+    "uid": "ABCDEF019182FAEB554144785533424F",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "UADx Waterfall Rotary Speaker": {
+    "uid": "ABCDEF019182FAEB5541447855334439",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Massive X": {
+    "uid": "5653544E6924486D6173736976652078",
+    "type": 7,
+    "vendor": "Native Instruments"
+  },
+  "Element Stereo": {
+    "uid": "5653544A464753656C656D656E742073",
+    "type": 7,
+    "vendor": "Waves"
+  },
+  "CODEX Stereo": {
+    "uid": "5653544A465753636F64657820737465",
+    "type": 7,
+    "vendor": "Waves"
+  },
+  "Electric Grand 80 Stereo": {
+    "uid": "56535447523853656C65637472696320",
+    "type": 7,
+    "vendor": "Waves"
+  },
+  "UADx Dream 65 Reverb Amp": {
+    "uid": "ABCDEF019182FAEB5541447855493136",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Filter MINI": {
+    "uid": "41727475415649534D69466950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "UADx Verve Analog Machines Essentials": {
+    "uid": "ABCDEF019182FAEB5541447855493131",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "UADx Ruby 63 Top Boost Amp": {
+    "uid": "ABCDEF019182FAEB5541447855493137",
+    "type": 7,
+    "vendor": "Universal Audio (UADx)"
+  },
+  "Comp VCA-65": {
+    "uid": "41727475415649534436354150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Pre 1973": {
+    "uid": "41727475415649535052373350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "EQ SITRAL-295": {
+    "uid": "41727475415649534571536950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Tape MELLO-FI": {
+    "uid": "417274754156495354614D6550726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Pre TridA": {
+    "uid": "41727475415649535452415250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Rev PLATE-140": {
+    "uid": "41727475415649535265506C50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Rev SPRING-636": {
+    "uid": "41727475415649535265477250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Comp FET-76": {
+    "uid": "41727475415649534654373650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Bus EXCITER-104": {
+    "uid": "41727475415649535831303450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Rotary CLS-222": {
+    "uid": "4172747541564953636C733250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Comp DIODE-609": {
+    "uid": "4172747541564953436F446950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Comp TUBE-STA": {
+    "uid": "41727475415649535453544150726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Chorus JUN-6": {
+    "uid": "4172747541564953434A553650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Pre V76": {
+    "uid": "417274754156495354454C4550726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Chorus DIMENSION-D": {
+    "uid": "417274754156495344696D4450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "SEM V2": {
+    "uid": "41727475415649534F42533250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Efx MOTIONS": {
+    "uid": "41727475415649534D6F746950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Dist COLDFIRE": {
+    "uid": "4172747541564953436F466950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Efx FRAGMENTS": {
+    "uid": "41727475415649536772616E50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Rev LX-24": {
+    "uid": "4172747541564953524C657850726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Filter MS-20": {
+    "uid": "417274754156495346694D7350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Dist OPAMP-21": {
+    "uid": "417274754156495373414D5050726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Rev INTENSITY": {
+    "uid": "4172747541564953416C675650726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Bus FORCE": {
+    "uid": "41727475415649534275467350726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Dist TUBE-CULTURE": {
+    "uid": "41727475415649535475437550726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Filter M12": {
+    "uid": "41727475415649534D61466950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Delay ETERNITY": {
+    "uid": "41727475415649534574657250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Delay TAPE-201": {
+    "uid": "41727475415649535461323050726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Efx REFRACT": {
+    "uid": "41727475415649535246525450726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Flanger BL-20": {
+    "uid": "4172747541564953424C323050726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Phaser BI-TRON": {
+    "uid": "41727475415649534269547250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Bus PEAK": {
+    "uid": "41727475415649534253504B50726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Delay BRIGADE": {
+    "uid": "41727475415649534D65427250726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Filter SEM": {
+    "uid": "41727475415649534F53466950726F63",
+    "type": 7,
+    "vendor": "Arturia"
+  },
+  "Spark": {
+    "uid": null,
+    "type": null,
+    "vendor": "Arturia",
+    "note": "AU-only on this Mac; no VST3 installed"
+  }
+}

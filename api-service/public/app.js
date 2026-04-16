@@ -44,6 +44,24 @@ function logEntry(method, path, status, data, ok) {
     `<span class="method">${escapeHtml(method)}</span> ` +
     `<span class="path">${escapeHtml(path)}</span> ` +
     `<span class="status">${status}</span>`;
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'entry-copy';
+  copyBtn.textContent = 'copy';
+  copyBtn.title = 'Copy this entry';
+  copyBtn.onclick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = summary.innerText + '\n' + JSON.stringify(data, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      const prev = copyBtn.textContent;
+      copyBtn.textContent = 'copied';
+      setTimeout(() => { copyBtn.textContent = prev; }, 900);
+    } catch {
+      copyBtn.textContent = 'failed';
+    }
+  };
+  summary.appendChild(copyBtn);
   const pre = document.createElement('pre');
   pre.textContent = JSON.stringify(data, null, 2);
   el.appendChild(summary);
@@ -155,19 +173,48 @@ function updateIndicator() {
   }
 }
 
+// Map a tool name to a display group. Order here controls section order in the dropdown.
+const GROUP_ORDER = [
+  ['Session',   t => t.startsWith('session') || t === 'session/lua_eval'],
+  ['Transport', t => t.startsWith('transport_')],
+  ['Markers',   t => t.startsWith('markers_')],
+  ['Tracks',    t => t.startsWith('tracks_') || t === 'buses_add'],
+  ['Track',     t => t.startsWith('track_')],
+  ['Regions',   t => t.startsWith('region_') || t === 'audio_region_add' || t === 'midi_region_add'],
+  ['MIDI',      t => t.startsWith('midi_')],
+  ['Plugins',   t => t.startsWith('plugin_')],
+];
+function groupFor(toolName) {
+  for (const [label, match] of GROUP_ORDER) if (match(toolName)) return label;
+  return 'Other';
+}
+
 async function loadTools() {
   const { body } = await api('GET', '/v1/tools', null, { silent: true });
   state.tools = body.tools || [];
   const sel = document.getElementById('tool-select');
   sel.innerHTML = '';
-  for (const t of state.tools) {
-    const opt = document.createElement('option');
-    opt.value = t.name;
-    opt.textContent = t.category + ' / ' + t.name;
-    sel.appendChild(opt);
+
+  const groups = new Map();
+  for (const [label] of GROUP_ORDER) groups.set(label, []);
+  groups.set('Other', []);
+  for (const t of state.tools) groups.get(groupFor(t.name)).push(t);
+
+  for (const [label, tools] of groups) {
+    if (!tools.length) continue;
+    tools.sort((a, b) => a.name.localeCompare(b.name));
+    const og = document.createElement('optgroup');
+    og.label = label;
+    for (const t of tools) {
+      const opt = document.createElement('option');
+      opt.value = t.name;
+      opt.textContent = t.name;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
   }
   sel.onchange = () => renderParamForm(sel.value);
-  if (state.tools.length) renderParamForm(state.tools[0].name);
+  if (state.tools.length) renderParamForm(sel.value || state.tools[0].name);
 }
 
 // Per-tool field overrides: hide fields, or replace them with dynamic dropdowns.
@@ -317,7 +364,8 @@ async function renderParamForm(toolName) {
       input.style.gap = '6px';
 
       const unitSel = document.createElement('select');
-      unitSel.style.flex = '0 0 auto';
+      unitSel.style.flex = '0 0 130px';
+      unitSel.style.width = '130px';
       unitSel.dataset.subkey = 'unit';
       const blank = document.createElement('option');
       blank.value = ''; blank.textContent = '(unit)';
@@ -332,6 +380,7 @@ async function renderParamForm(toolName) {
       // Value area — swaps shape based on unit selection.
       const valueWrap = document.createElement('span');
       valueWrap.style.flex = '1 1 auto';
+      valueWrap.style.minWidth = '0';
       valueWrap.style.display = 'flex';
       valueWrap.style.gap = '4px';
       input.appendChild(valueWrap);
@@ -342,9 +391,11 @@ async function renderParamForm(toolName) {
           const bar = document.createElement('input');
           bar.type = 'number'; bar.min = '1'; bar.placeholder = 'bar';
           bar.dataset.subkey = 'bar';
+          bar.style.flex = '1'; bar.style.minWidth = '0';
           const beat = document.createElement('input');
           beat.type = 'number'; beat.step = '0.001'; beat.min = '1'; beat.placeholder = 'beat';
           beat.dataset.subkey = 'beat';
+          beat.style.flex = '1'; beat.style.minWidth = '0';
           valueWrap.appendChild(bar);
           valueWrap.appendChild(beat);
         } else {
@@ -353,6 +404,7 @@ async function renderParamForm(toolName) {
           v.step = (unit === 'seconds' || unit === 'beats') ? 'any' : '1';
           v.placeholder = unit ? `value (${unit})` : 'value';
           v.dataset.subkey = 'value';
+          v.style.flex = '1'; v.style.minWidth = '0';
           valueWrap.appendChild(v);
         }
       };
@@ -525,11 +577,8 @@ async function renderParamForm(toolName) {
   }
 }
 
-async function sendAction() {
-  if (!state.sessionId) { alert('Select a session first'); return; }
-  const toolName = document.getElementById('tool-select').value;
+function collectFormParams() {
   const params = {};
-  // First: handle composite-input divs (position / timelineLength / repeat) — read their sub-inputs into structured objects.
   for (const div of document.querySelectorAll('#param-form .composite-input')) {
     const key = div.dataset.key;
     const subs = div.querySelectorAll('[data-subkey]');
@@ -568,11 +617,76 @@ async function sendAction() {
     else if (type === 'number') val = parseFloat(val);
     else if (type === 'object') {
       try { val = JSON.parse(val); }
-      catch (e) { alert(`${key}: invalid JSON — ${e.message}`); return; }
+      catch (e) { alert(`${key}: invalid JSON — ${e.message}`); return null; }
     }
     params[key] = val;
   }
+  return params;
+}
+
+async function sendAction() {
+  if (!state.sessionId) { alert('Select a session first'); return; }
+  const toolName = document.getElementById('tool-select').value;
+  const params = collectFormParams();
+  if (params === null) return;
   await api('POST', `/v1/sessions/${state.sessionId}/actions`, { tool: toolName, params });
+}
+
+// ---- Favorites (localStorage) ----
+const FAV_KEY = 'ardour_dev_favorites_v1';
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; }
+  catch { return []; }
+}
+function saveFavorites(list) { localStorage.setItem(FAV_KEY, JSON.stringify(list)); }
+
+function renderFavorites() {
+  const list = document.getElementById('favorites-list');
+  list.innerHTML = '';
+  const favs = loadFavorites();
+  for (let i = 0; i < favs.length; i++) {
+    const fav = favs[i];
+    const wrap = document.createElement('span');
+    wrap.className = 'favorite-item';
+    const run = document.createElement('button');
+    run.className = 'fav-run';
+    run.textContent = fav.name;
+    run.title = `${fav.tool}\n${JSON.stringify(fav.params, null, 2)}`;
+    run.onclick = () => runFavorite(fav);
+    const del = document.createElement('button');
+    del.className = 'fav-del';
+    del.textContent = '×';
+    del.title = 'Remove favorite';
+    del.onclick = (e) => {
+      e.stopPropagation();
+      const cur = loadFavorites();
+      cur.splice(i, 1);
+      saveFavorites(cur);
+      renderFavorites();
+    };
+    wrap.appendChild(run);
+    wrap.appendChild(del);
+    list.appendChild(wrap);
+  }
+}
+
+async function runFavorite(fav) {
+  if (!state.sessionId) { alert('Select a session first'); return; }
+  await api('POST', `/v1/sessions/${state.sessionId}/actions`, { tool: fav.tool, params: fav.params });
+}
+
+function saveCurrentAsFavorite() {
+  const toolName = document.getElementById('tool-select').value;
+  if (!toolName) { alert('Pick a tool first'); return; }
+  const params = collectFormParams();
+  if (params === null) return;
+  const defaultName = toolName.split('/').pop();
+  const name = prompt(`Favorite name for "${toolName}":`, defaultName);
+  if (!name) return;
+  const favs = loadFavorites();
+  favs.push({ name, tool: toolName, params });
+  saveFavorites(favs);
+  renderFavorites();
 }
 
 document.getElementById('btn-new-session').onclick = async () => {
@@ -595,6 +709,85 @@ document.getElementById('btn-play').onclick = () => quickAction('transport_play'
 document.getElementById('btn-stop').onclick = () => quickAction('transport_stop');
 document.getElementById('btn-save').onclick = () => quickAction('session_save');
 document.getElementById('btn-send').onclick = sendAction;
+document.getElementById('btn-save-favorite').onclick = saveCurrentAsFavorite;
+renderFavorites();
+
+// ---- Presets panel ----
+async function doPresetSearch() {
+  if (!state.sessionId) { alert('Select a session first'); return; }
+  const query = document.getElementById('preset-query').value.trim();
+  const capturedOnly = document.getElementById('preset-captured-only').checked;
+  const params = { limit: 25 };
+  if (query) params.query = query;
+  if (capturedOnly) params.capturedOnly = true;
+  const { body } = await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+    { tool: 'preset/search', params }, { silent: true });
+  renderPresetResults(body?.results || []);
+}
+
+function renderPresetResults(results) {
+  const list = document.getElementById('preset-results');
+  list.innerHTML = '';
+  const track = document.getElementById('preset-track').value.trim();
+  if (!results.length) {
+    list.innerHTML = '<div style="color:#888;font-size:11px;padding:4px;">no matches</div>';
+    return;
+  }
+  for (const r of results) {
+    const row = document.createElement('div');
+    row.className = 'preset-row' + (r.ardour_uri ? ' has-uri' : '');
+    const main = document.createElement('div');
+    main.className = 'pr-main';
+    const name = document.createElement('div');
+    name.className = 'pr-name';
+    name.textContent = `${r.plugin} — ${r.preset_name}`;
+    const meta = document.createElement('div');
+    meta.className = 'pr-meta';
+    const tags = (r.tags || []).slice(0, 5).map(t => `${t.axis}:${t.tag}`).join(' ');
+    const bits = [r.category, r.bank, tags].filter(Boolean);
+    meta.textContent = bits.join(' · ') || (r.ardour_uri ? 'captured' : 'not captured yet');
+    main.appendChild(name);
+    main.appendChild(meta);
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'pr-load';
+    loadBtn.textContent = 'Load';
+    if (!r.ardour_uri) { loadBtn.disabled = true; loadBtn.title = 'No captured URI — capture this preset first from the plugin GUI.'; }
+    else if (!track) { loadBtn.disabled = true; loadBtn.title = 'Enter a target track name above.'; }
+    loadBtn.onclick = async () => {
+      const tgt = document.getElementById('preset-track').value.trim();
+      if (!tgt) { alert('Enter a target track name'); return; }
+      await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+        { tool: 'preset/load', params: { track: tgt, ardour_uri: r.ardour_uri } });
+    };
+    row.appendChild(main);
+    row.appendChild(loadBtn);
+    list.appendChild(row);
+  }
+}
+
+async function doPresetCapture() {
+  if (!state.sessionId) { alert('Select a session first'); return; }
+  const track = document.getElementById('preset-track').value.trim();
+  // When track is empty, the server auto-detects the currently-selected route in Ardour.
+  // Name prompt is optional — user can hit Cancel or leave it blank for an auto-name.
+  const presetName = prompt(
+    track
+      ? `Preset name for track "${track}" (leave blank for auto-name):`
+      : `Preset name (leave blank for auto-name; track auto-detected from Ardour):`,
+    '');
+  if (presetName === null) return;
+  const params = {};
+  if (track) params.track = track;
+  if (presetName.trim()) params.presetName = presetName.trim();
+  await api('POST', `/v1/sessions/${state.sessionId}/actions`,
+    { tool: 'preset/capture', params });
+  await doPresetSearch();
+}
+
+document.getElementById('btn-preset-search').onclick = doPresetSearch;
+document.getElementById('btn-preset-capture').onclick = doPresetCapture;
+document.getElementById('preset-query').addEventListener('keydown', (e) => { if (e.key === 'Enter') doPresetSearch(); });
+document.getElementById('preset-track').addEventListener('keydown', (e) => { if (e.key === 'Enter') doPresetSearch(); });
 document.getElementById('btn-clear-log').onclick = () => document.getElementById('log').innerHTML = '';
 document.getElementById('btn-copy-log').onclick = copyLogToClipboard;
 

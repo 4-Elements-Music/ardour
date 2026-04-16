@@ -16,6 +16,7 @@ import { ActionProxy } from './lib/action-proxy.js';
 import { PortPool } from './lib/port-pool.js';
 import { TimeoutReaper } from './lib/timeout-reaper.js';
 import { RequestCache } from './lib/request-cache.js';
+import { PresetStore } from './lib/preset-store.js';
 import { spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,6 +68,7 @@ app.decorate('sessionManager', sessionManager);
 app.decorate('actionProxy', actionProxy);
 app.decorate('config', config);
 app.decorate('requestCache', new RequestCache({ maxEntries: 256, ttlMs: 10 * 60 * 1000 }));
+app.decorate('presetStore', new PresetStore());
 
 // Register plugins
 await app.register(fastifyMultipart, { limits: { fileSize: config.maxUploadBytes } });
