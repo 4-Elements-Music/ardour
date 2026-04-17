@@ -35,8 +35,8 @@ class /*LIBPBD_API*/ PlaybackBuffer
 public:
 	static size_t power_of_two_size (size_t sz) {
 		int32_t power_of_two;
-		for (power_of_two = 1; 1U << power_of_two < sz; ++power_of_two);
-		return 1U << power_of_two;
+		for (power_of_two = 1; (uint64_t)1 << power_of_two < sz && power_of_two < 63; ++power_of_two);
+		return (uint64_t)1 << power_of_two;
 	}
 
 	PlaybackBuffer (size_t sz, size_t res = 8191)
