@@ -513,7 +513,216 @@ print("label="..cap.label)
       path: destPath,
     });
   });
+
+  // POST /v1/sessions/:id/export
+  // Drives Session:simple_export via session/lua_eval.
+  app.post('/sessions/:id/export', async (req, reply) => {
+    const s = app.sessionManager.get(req.params.id);
+    if (!s) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    if (s.status === 'stopping' || s.status === 'stopped' || s.status === 'dead') {
+      return reply.code(409).send({ error_code: 'SESSION_STOPPING', status: s.status });
+    }
+    const body = req.body || {};
+    const rawFilename = typeof body.filename === 'string' ? body.filename : '';
+    const filename = sanitizeUploadFilename(rawFilename);
+    if (!filename) {
+      return reply.code(400).send({
+        error_code: 'INVALID_FILENAME',
+        error: 'filename required, no path separators, may not start with .',
+      });
+    }
+    const formatKey = (body.format || 'wav').toLowerCase();
+    const presetUuid = EXPORT_PRESETS[formatKey];
+    if (!presetUuid) {
+      return reply.code(400).send({
+        error_code: 'UNSUPPORTED_FORMAT',
+        error: `unknown format ${formatKey}; supported: ${Object.keys(EXPORT_PRESETS).join(', ')}`,
+      });
+    }
+    const startSamples = Number.isFinite(body.start_samples) ? body.start_samples | 0 : 0;
+    const endSamples = Number.isFinite(body.end_samples) ? body.end_samples | 0 : null;
+    if (startSamples < 0) {
+      return reply.code(400).send({ error_code: 'INVALID_RANGE', error: 'start_samples must be >= 0' });
+    }
+    if (endSamples !== null && endSamples <= startSamples) {
+      return reply.code(400).send({
+        error_code: 'INVALID_RANGE',
+        error: 'end_samples must be > start_samples',
+      });
+    }
+
+    const exportDir = resolvePath(s.sessionDir, 'export');
+    await mkdir(exportDir, { recursive: true });
+
+    // Parse a session/lua_eval result tolerantly (same pattern as actions handler).
+    const parseLuaEvalResult = (rpcResult) => {
+      const payload = rpcResult?.result ?? rpcResult;
+      const text = payload?.content?.[0]?.text;
+      try {
+        const fixed = String(text || '').replace(/[\x00-\x1f]/g, (c) => {
+          if (c === '\n') return '\\n';
+          if (c === '\r') return '\\r';
+          if (c === '\t') return '\\t';
+          return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+        });
+        return { inner: JSON.parse(fixed), payload };
+      } catch {
+        return { inner: null, payload };
+      }
+    };
+
+    const luaStr = (v) => JSON.stringify(String(v));
+    const code = `
+local FOLDER = ${luaStr(exportDir)}
+local NAME = ${luaStr(filename)}
+local PRESET = ${luaStr(presetUuid)}
+local START = ${startSamples}
+local END_ARG = ${endSamples === null ? 'nil' : endSamples}
+
+-- Resolve end sample by walking all regions on all tracks when not explicit.
+local function compute_max_region_end()
+  local max_end = 0
+  local routes = Session:get_routes()
+  for r in routes:iter() do
+    local track = r:to_track()
+    if not track:isnil() then
+      local playlist = track:playlist()
+      if playlist and not playlist:isnil() then
+        local rl = playlist:region_list()
+        for region in rl:iter() do
+          local region_end = region:position():samples() + region:length():samples()
+          if region_end > max_end then max_end = region_end end
+        end
+      end
+    end
+  end
+  return max_end
+end
+
+local end_s = END_ARG
+if end_s == nil then
+  end_s = compute_max_region_end()
+  if end_s == nil or end_s <= START then
+    print("ERR no_content: session has no content after start_samples=" .. tostring(START))
+    return
+  end
+end
+
+Session:maybe_update_session_range(
+  Temporal.timepos_t(START),
+  Temporal.timepos_t(end_s)
+)
+
+local se = Session:simple_export()
+se:set_name(NAME)
+se:set_folder(FOLDER)
+se:set_range(START, end_s)
+
+local preset_ok = se:set_preset(PRESET)
+if not preset_ok then
+  print("ERR preset: set_preset returned false for uuid=" .. PRESET)
+  return
+end
+
+local outputs_ok = se:check_outputs()
+if not outputs_ok then
+  print("ERR outputs: check_outputs returned false")
+  return
+end
+
+local export_ok = se:run_export()
+if not export_ok then
+  print("ERR export: run_export returned false")
+  return
+end
+
+print("OK")
+print("start_samples=" .. tostring(START))
+print("end_samples=" .. tostring(end_s))
+print("duration_samples=" .. tostring(end_s - START))
+print("sample_rate=" .. tostring(Session:sample_rate()))
+print("folder=" .. FOLDER)
+print("name=" .. NAME)
+`.trim();
+
+    try {
+      const rpc = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);
+      const { inner, payload } = parseLuaEvalResult(rpc);
+      if (!inner || !inner.success) {
+        return reply.code(500).send({
+          error_code: 'EXPORT_FAILED',
+          message: inner?.error || 'lua_eval failed',
+          payload,
+        });
+      }
+      const lines = String(inner.output || '').split('\n').filter(Boolean);
+      if (lines[0] && lines[0].startsWith('ERR ')) {
+        const [, errMsg] = lines[0].match(/^ERR (.+)$/) || [, lines[0]];
+        return reply.code(500).send({
+          error_code: 'EXPORT_FAILED',
+          message: errMsg,
+          output: inner.output,
+        });
+      }
+      const fields = {};
+      for (const line of lines.slice(1)) {
+        const i = line.indexOf('=');
+        if (i > 0) fields[line.slice(0, i).trim()] = line.slice(i + 1);
+      }
+      // Find the emitted file. SimpleExport may add extensions/suffixes.
+      const candidates = [
+        resolvePath(exportDir, `${filename}.wav`),
+        resolvePath(exportDir, `${filename}.flac`),
+        resolvePath(exportDir, `${filename}.ogg`),
+        resolvePath(exportDir, `${filename}.mp3`),
+      ];
+      let outputPath = null;
+      let outputBytes = 0;
+      for (const p of candidates) {
+        try {
+          const st = await stat(p);
+          outputPath = p;
+          outputBytes = st.size;
+          break;
+        } catch {}
+      }
+      if (!outputPath) {
+        return reply.code(500).send({
+          error_code: 'EXPORT_NO_OUTPUT',
+          message: 'export completed but no output file found',
+          output: inner.output,
+        });
+      }
+      const sampleRate = parseInt(fields.sample_rate || s.sampleRate, 10) || s.sampleRate;
+      const durationSamples = parseInt(fields.duration_samples || '0', 10);
+      const durationS = durationSamples / sampleRate;
+      return reply.code(200).send({
+        ok: true,
+        output_path: outputPath,
+        filename: outputPath.split('/').pop(),
+        bytes: outputBytes,
+        duration_s: durationS,
+        sample_rate: sampleRate,
+        start_samples: parseInt(fields.start_samples || '0', 10),
+        end_samples: parseInt(fields.end_samples || '0', 10),
+        format: formatKey,
+      });
+    } catch (e) {
+      req.log.error({ err: e }, 'export failed');
+      return reply.code(500).send({ error_code: 'EXPORT_FAILED', message: e.message });
+    }
+  });
 }
+
+// Preset UUIDs from components/ardour/share/export/*.preset
+const EXPORT_PRESETS = {
+  wav: '75969a1c-3133-4694-864b-a1fa50e43348',
+  flac: 'e379c6d0-9761-413a-86fd-91bf19655dbd',
+  ogg: 'a83019f9-858e-4b69-8cc2-8d0487003d14',
+  mp3: '568b42e6-4436-40d6-b2db-a26dd0029d0f',
+  cd: 'df340c53-88b5-4342-a1c8-58e0704872ea',
+  streaming: '44c931f0-3989-4304-b16d-1984c7e00042',
+};
 
 function sessionToResponse(s) {
   const out = {
