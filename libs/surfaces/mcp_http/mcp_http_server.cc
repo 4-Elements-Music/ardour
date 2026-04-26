@@ -49,6 +49,7 @@
 #include "pbd/event_loop.h"
 #include "pbd/id.h"
 #include "pbd/memento_command.h"
+#include "pbd/progress.h"
 #include "pbd/pthread_utils.h"
 #include "pbd/stateful_diff_command.h"
 #include "pbd/xml++.h"
@@ -81,16 +82,13 @@
 #include "ardour/session_directory.h"
 #include "ardour/session_event.h"
 #include "ardour/source.h"
+#include "ardour/stretch.h"
 #include "ardour/stripable.h"
 #include "ardour/tempo.h"
 #include "ardour/timefx_request.h"
 #include "ardour/track.h"
-#include "ardour/stretch.h"
-#include "ardour/pitch.h"
-#include "ardour/filter.h"
 
 #include <rubberband/RubberBandStretcher.h>
-#include "pbd/progress.h"
 
 #include "ardour/luabindings.h"
 #include "lua/luastate.h"
@@ -101,6 +99,10 @@
 namespace pt = boost::property_tree;
 
 using namespace ArdourSurface;
+
+/* Denominator for ratio_t used in TimeFXRequest::time_fraction.
+ * 1 000 000 gives sub-cent precision for time-stretch ratios. */
+static constexpr int64_t TIME_RATIO_DENOMINATOR = 1000000LL;
 
 namespace
 {
@@ -6921,10 +6923,9 @@ handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
 	req.algorithm = ARDOUR::TimeFXRequest::Rubberband;
 
 	/* time_fraction is a ratio_t used as the multiplier: ratio_t(N, D) = N/D.
-	 * We use a fixed denominator of 1 000 000 for sub-cent precision. */
-	const int64_t kDen     = 1000000LL;
-	const int64_t kNum     = static_cast<int64_t> (std::round (time_ratio * kDen));
-	req.time_fraction = Temporal::ratio_t (kNum, kDen);
+	 * We use a fixed denominator of TIME_RATIO_DENOMINATOR for sub-cent precision. */
+	const int64_t num     = static_cast<int64_t> (std::round (time_ratio * TIME_RATIO_DENOMINATOR));
+	req.time_fraction = Temporal::ratio_t (num, TIME_RATIO_DENOMINATOR);
 
 	/* pitch_fraction is a linear ratio (not semitones): 2^(s/12). */
 	req.pitch_fraction = static_cast<float> (std::pow (2.0, semitones / 12.0));
@@ -7027,32 +7028,44 @@ handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
 
 	session.begin_reversible_command ("AI: stretch audio region");
 
-	if (rbs.run (region, &progress) != 0) {
+	std::shared_ptr<ARDOUR::Region> new_region;
+	try {
+		if (rbs.run (region, &progress) != 0) {
+			session.abort_reversible_command ();
+			return audio_region_stretch_validation_error (
+			    id, "STRETCH_FAILED", "Rubber Band returned non-zero result", region_id);
+		}
+
+		if (rbs.results.empty ()) {
+			session.abort_reversible_command ();
+			return audio_region_stretch_validation_error (
+			    id, "STRETCH_FAILED", "Rubber Band produced no result region", region_id);
+		}
+
+		new_region = rbs.results.front ();
+
+		/* Install the new region into the playlist, replacing the old one. */
+		playlist->clear_changes ();
+		playlist->replace_region (region, new_region, region->position ());
+		PBD::StatefulDiffCommand* cmd = new PBD::StatefulDiffCommand (playlist);
+		session.add_command (cmd);
+		if (cmd->empty ()) {
+			/* replace_region recorded no diff — playlist unchanged, abort cleanly */
+			session.abort_reversible_command ();
+			return audio_region_stretch_validation_error (
+			    id, "STRETCH_FAILED", "playlist replace recorded no changes", region_id);
+		}
+		session.commit_reversible_command ();
+	} catch (const std::exception& e) {
 		session.abort_reversible_command ();
 		return audio_region_stretch_validation_error (
-		    id, "STRETCH_FAILED", "Rubber Band returned non-zero result", region_id);
-	}
-
-	if (rbs.results.empty ()) {
+		    id, "STRETCH_FAILED",
+		    std::string ("exception during stretch: ") + e.what (), region_id);
+	} catch (...) {
 		session.abort_reversible_command ();
 		return audio_region_stretch_validation_error (
-		    id, "STRETCH_FAILED", "Rubber Band produced no result region", region_id);
+		    id, "STRETCH_FAILED", "unknown exception during stretch", region_id);
 	}
-
-	std::shared_ptr<ARDOUR::Region> new_region = rbs.results.front ();
-
-	/* Install the new region into the playlist, replacing the old one. */
-	playlist->clear_changes ();
-	playlist->replace_region (region, new_region, region->position ());
-	PBD::StatefulDiffCommand* cmd = new PBD::StatefulDiffCommand (playlist);
-	session.add_command (cmd);
-	if (cmd->empty ()) {
-		/* replace_region recorded no diff — playlist unchanged, abort cleanly */
-		session.abort_reversible_command ();
-		return audio_region_stretch_validation_error (
-		    id, "STRETCH_FAILED", "playlist replace recorded no changes", region_id);
-	}
-	session.commit_reversible_command ();
 
 	/* --- 7. Build success response ------------------------------------ */
 	const ARDOUR::samplecnt_t new_length_samples    = new_region->length_samples ();
