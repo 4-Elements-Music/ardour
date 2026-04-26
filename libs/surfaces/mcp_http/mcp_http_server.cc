@@ -6842,6 +6842,41 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	return jsonrpc_result (id, out.str ());
 }
 
+static std::mutex g_audio_region_stretch_mutex;
+
+static std::string
+audio_region_stretch_validation_error (const std::string& id,
+                                       const std::string& code,
+                                       const std::string& message,
+                                       const std::string& region_id)
+{
+	pt::ptree resp;
+	resp.put ("jsonrpc", "2.0");
+	resp.put ("id", id);
+	resp.put ("result.ok", false);
+	resp.put ("result.code", code);
+	resp.put ("result.message", message);
+	resp.put ("result.regionId", region_id);
+	std::ostringstream oss;
+	pt::write_json (oss, resp, false);
+	return oss.str ();
+}
+
+std::string
+handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
+                                  const std::string& id)
+{
+	std::lock_guard<std::mutex> lg (g_audio_region_stretch_mutex);
+	const std::string region_id = root.get<std::string> (
+	    "params.arguments.regionId", "");
+	if (region_id.empty ()) {
+		return audio_region_stretch_validation_error (
+		    id, "INVALID_PARAMS", "regionId required", region_id);
+	}
+	return audio_region_stretch_validation_error (
+	    id, "NOT_IMPLEMENTED", "skeleton only", region_id);
+}
+
 static std::string
 handle_midi_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const std::string& id)
 {
@@ -8917,6 +8952,10 @@ dispatch_audio_region_tool_call (ARDOUR::Session& session, const std::string& to
 {
 	if (tool_name == "audio_region/add") {
 		response = handle_audio_region_add_tool (session, root, id);
+		return true;
+	}
+	if (tool_name == "audio_region/stretch") {
+		response = handle_audio_region_stretch_tool (session, root, id);
 		return true;
 	}
 
