@@ -1322,10 +1322,15 @@ struct MidiJsonEventDef {
 	int         bar;
 	double      beat;
 	int         tick;
-	int         note;
+	int         note;       /* -1 if not a note event */
 	int         velocity;
 	int         channel;
 	std::string type;
+	int         controller; /* CC: controller number, -1 if not present */
+	int         cc_value;   /* CC: value 0-127, -1 if not present */
+	int         bend;       /* PB: -8192..8191, INT_MIN if not present */
+	int         program;    /* PGM: 0-127, -1 if not present */
+	int         pressure;   /* AT: 0-127, -1 if not present */
 };
 
 struct MidiJsonNoteDef {
@@ -1614,12 +1619,6 @@ parse_midi_json_events (
 			return false;
 		}
 
-		const std::optional<int64_t> note_opt = get_optional_std<int64_t> (ev, "n");
-		if (!note_opt || *note_opt < 0 || *note_opt > 127) {
-			error = "Each normal midi event must provide n (0..127)";
-			return false;
-		}
-
 		const int64_t tick_in = ev.get<int64_t> ("t", 0);
 		if (tick_in < 0) {
 			error = "Invalid midi event t (expected >= 0)";
@@ -1646,14 +1645,72 @@ parse_midi_json_events (
 		std::string type = ev.get<std::string> ("type", "note_on");
 		std::transform (type.begin (), type.end (), type.begin (), ::tolower);
 
+		/* note field — required for note_on/note_off/aftertouch_poly, optional otherwise */
+		const std::optional<int64_t> note_opt = get_optional_std<int64_t> (ev, "n");
+		const bool is_note_type = (type == "note_on" || type == "note_off");
+		const bool is_poly_at   = (type == "aftertouch_poly");
+		if ((is_note_type || is_poly_at) && (!note_opt || *note_opt < 0 || *note_opt > 127)) {
+			error = "Each note_on/note_off/aftertouch_poly event must provide n (0..127)";
+			return false;
+		}
+
 		MidiJsonEventDef out;
-		out.bar      = bar;
-		out.beat     = *beat_opt;
-		out.tick     = (int)tick_in;
-		out.note     = (int)*note_opt;
-		out.velocity = (int)velocity_in;
-		out.channel  = event_channel;
-		out.type     = type;
+		out.bar        = bar;
+		out.beat       = *beat_opt;
+		out.tick       = (int)tick_in;
+		out.note       = note_opt ? (int)*note_opt : -1;
+		out.velocity   = (int)velocity_in;
+		out.channel    = event_channel;
+		out.type       = type;
+		out.controller = -1;
+		out.cc_value   = -1;
+		out.bend       = INT_MIN;
+		out.program    = -1;
+		out.pressure   = -1;
+
+		/* parse type-specific fields */
+		if (type == "cc") {
+			const std::optional<int64_t> ctrl_opt = get_optional_std<int64_t> (ev, "controller");
+			const std::optional<int64_t> val_opt  = get_optional_std<int64_t> (ev, "value");
+			if (!ctrl_opt || *ctrl_opt < 0 || *ctrl_opt > 127) {
+				error = "CC event must provide controller (0..127)";
+				return false;
+			}
+			if (!val_opt || *val_opt < 0 || *val_opt > 127) {
+				error = "CC event must provide value (0..127)";
+				return false;
+			}
+			out.controller = (int)*ctrl_opt;
+			out.cc_value   = (int)*val_opt;
+		} else if (type == "pb") {
+			const std::optional<int64_t> bend_opt = get_optional_std<int64_t> (ev, "bend");
+			out.bend = bend_opt ? (int)*bend_opt : 0;
+			if (out.bend < -8192 || out.bend > 8191) {
+				error = "PB event bend must be in range -8192..8191";
+				return false;
+			}
+		} else if (type == "pgm") {
+			const std::optional<int64_t> pgm_opt = get_optional_std<int64_t> (ev, "program");
+			if (!pgm_opt || *pgm_opt < 0 || *pgm_opt > 127) {
+				error = "PGM event must provide program (0..127)";
+				return false;
+			}
+			out.program = (int)*pgm_opt;
+		} else if (type == "aftertouch_chan") {
+			const std::optional<int64_t> pres_opt = get_optional_std<int64_t> (ev, "pressure");
+			if (!pres_opt || *pres_opt < 0 || *pres_opt > 127) {
+				error = "aftertouch_chan event must provide pressure (0..127)";
+				return false;
+			}
+			out.pressure = (int)*pres_opt;
+		} else if (type == "aftertouch_poly") {
+			const std::optional<int64_t> pres_opt = get_optional_std<int64_t> (ev, "pressure");
+			if (!pres_opt || *pres_opt < 0 || *pres_opt > 127) {
+				error = "aftertouch_poly event must provide pressure (0..127)";
+				return false;
+			}
+			out.pressure = (int)*pres_opt;
+		}
 
 		expanded_events.push_back (out);
 		events_by_bar[bar].push_back (out);
@@ -1708,10 +1765,19 @@ build_midi_json_note_defs (
 		    return a.ordinal < b.ordinal;
 	    });
 
+	/* helper: returns true if the event type is a non-note MIDI event (CC/PB/PGM/AT) */
+	auto is_non_note_type = [] (const std::string& t) {
+		return t == "cc" || t == "pb" || t == "pgm" || t == "aftertouch_chan" || t == "aftertouch_poly";
+	};
+
 	if (is_drum_mode) {
 		const double default_length = 0.0;
 
 		for (size_t i = 0; i < events.size (); ++i) {
+			/* skip non-note events — they are handled separately in the handler */
+			if (is_non_note_type (events[i].ev.type)) {
+				continue;
+			}
 			MidiJsonNoteDef n;
 			n.start_quarters  = events[i].quarters;
 			n.length_quarters = default_length;
@@ -1730,10 +1796,16 @@ build_midi_json_note_defs (
 	std::map<int, std::vector<PendingOn>> active_by_note;
 
 	for (size_t i = 0; i < events.size (); ++i) {
-		const MidiJsonEventDef& ev       = events[i].ev;
-		const bool              is_off   = (ev.type == "note_off") || (ev.velocity == 0);
-		const bool              is_on    = (ev.type.empty () || ev.type == "note_on");
-		const int               note_key = (ev.channel * 128) + ev.note;
+		const MidiJsonEventDef& ev = events[i].ev;
+
+		/* skip non-note events — they are handled separately in the handler */
+		if (is_non_note_type (ev.type)) {
+			continue;
+		}
+
+		const bool is_off   = (ev.type == "note_off") || (ev.velocity == 0);
+		const bool is_on    = (ev.type.empty () || ev.type == "note_on");
+		const int  note_key = (ev.channel * 128) + ev.note;
 
 		if (is_off) {
 			std::vector<PendingOn>& stack = active_by_note[note_key];
@@ -7960,6 +8032,123 @@ handle_midi_note_import_json_tool (ARDOUR::Session& session, pt::ptree& root, co
 
 	const size_t rejected_count = (note_defs.size () >= inserted_count) ? (note_defs.size () - inserted_count) : 0;
 
+	/* --- Insert non-note events (CC, PB, PGM, aftertouch) ---
+	 * These go through different model APIs: raw events via add_sysex_unlocked
+	 * for CC/PB/AT, and PatchChangeDiffCommand for program changes.
+	 */
+	size_t non_note_inserted = 0;
+	size_t non_note_rejected = 0;
+
+	/* Collect program-change events for PatchChangeDiffCommand */
+	ARDOUR::MidiModel::PatchChangeDiffCommand* pgm_cmd = nullptr;
+	std::vector<ARDOUR::MidiModel::PatchChangePtr> pgm_patches;
+
+	/* Collect raw sysex-style events (CC, PB, AT) under a single write lock */
+	struct RawEventSpec {
+		Temporal::Beats time;
+		uint8_t         buf[3];
+		uint8_t         size;
+	};
+	std::vector<RawEventSpec> raw_events;
+
+	for (size_t i = 0; i < expanded_events.size (); ++i) {
+		const MidiJsonEventDef& ev    = expanded_events[i];
+		const std::string&      etype = ev.type;
+
+		if (etype != "cc" && etype != "pb" && etype != "pgm" &&
+		    etype != "aftertouch_chan" && etype != "aftertouch_poly") {
+			continue;
+		}
+
+		const double event_quarters = midi_json_event_quarters (ev, time_sig_num, time_sig_den, ticks_per_quarter);
+		if (!std::isfinite (event_quarters) || event_quarters < 0.0) {
+			std::ostringstream w;
+			w << "Skipped " << etype << " event at bar " << ev.bar << " (invalid timing)";
+			warnings.push_back (w.str ());
+			++non_note_rejected;
+			continue;
+		}
+
+		const Temporal::Beats source_beats = midi_region->region_beats_to_source_beats (
+		    Temporal::Beats::from_double (event_quarters));
+		if (source_beats < Temporal::Beats ()) {
+			std::ostringstream w;
+			w << "Skipped " << etype << " event before region start at bar " << ev.bar;
+			warnings.push_back (w.str ());
+			++non_note_rejected;
+			continue;
+		}
+
+		const uint8_t ch = static_cast<uint8_t> (ev.channel & 0x0F);
+
+		if (etype == "pgm") {
+			/* Program change: use PatchChangeDiffCommand (bank 0 by default) */
+			if (!pgm_cmd) {
+				pgm_cmd = model->new_patch_change_diff_command ("import midi json pgm");
+			}
+			ARDOUR::MidiModel::PatchChangePtr p (
+			    new Evoral::PatchChange<Temporal::Beats> (source_beats, ch, static_cast<uint8_t> (ev.program), 0));
+			pgm_cmd->add (p);
+			pgm_patches.push_back (p);
+			++non_note_inserted;
+		} else {
+			/* CC, PB, and aftertouch: raw MIDI events via add_sysex_unlocked */
+			RawEventSpec raw;
+			raw.time = source_beats;
+
+			if (etype == "cc") {
+				raw.size   = 3;
+				raw.buf[0] = static_cast<uint8_t> (0xB0 | ch);
+				raw.buf[1] = static_cast<uint8_t> (ev.controller);
+				raw.buf[2] = static_cast<uint8_t> (ev.cc_value);
+			} else if (etype == "pb") {
+				const int b14 = std::clamp (ev.bend + 8192, 0, 16383);
+				raw.size   = 3;
+				raw.buf[0] = static_cast<uint8_t> (0xE0 | ch);
+				raw.buf[1] = static_cast<uint8_t> (b14 & 0x7F);
+				raw.buf[2] = static_cast<uint8_t> ((b14 >> 7) & 0x7F);
+			} else if (etype == "aftertouch_chan") {
+				raw.size   = 2;
+				raw.buf[0] = static_cast<uint8_t> (0xD0 | ch);
+				raw.buf[1] = static_cast<uint8_t> (ev.pressure);
+				raw.buf[2] = 0;
+			} else { /* aftertouch_poly */
+				raw.size   = 3;
+				raw.buf[0] = static_cast<uint8_t> (0xA0 | ch);
+				raw.buf[1] = static_cast<uint8_t> (ev.note);
+				raw.buf[2] = static_cast<uint8_t> (ev.pressure);
+			}
+
+			raw_events.push_back (raw);
+			++non_note_inserted;
+		}
+	}
+
+	/* Commit program changes */
+	if (pgm_cmd) {
+		model->apply_diff_command_as_commit (_session, pgm_cmd);
+	}
+
+	/* Insert raw CC/PB/AT events under a single write lock */
+	if (!raw_events.empty ()) {
+		{
+			ARDOUR::MidiModel::WriteLock lock (model->edit_lock ());
+			for (size_t i = 0; i < raw_events.size (); ++i) {
+				const RawEventSpec& rs = raw_events[i];
+				ARDOUR::MidiModel::SysExPtr ev_ptr (
+				    new Evoral::Event<Temporal::Beats> (
+				        Evoral::MIDI_EVENT,
+				        rs.time,
+				        rs.size,
+				        const_cast<uint8_t*> (rs.buf),
+				        true /* alloc — deep copy */));
+				model->add_sysex_unlocked (ev_ptr);
+			}
+		}
+		model->ContentsChanged (); /* EMIT SIGNAL */
+		model->set_edited (true);
+	}
+
 	std::ostringstream structured;
 	structured << "{\"createdRegion\":" << (created_region ? "true" : "false")
 	           << ",\"region\":" << midi_region_brief_json (target_region)
@@ -7977,6 +8166,8 @@ handle_midi_note_import_json_tool (ARDOUR::Session& session, pt::ptree& root, co
 	           << ",\"notesAttempted\":" << requested_notes.size ()
 	           << ",\"notesInserted\":" << inserted_count
 	           << ",\"notesRejected\":" << rejected_count
+	           << ",\"nonNoteInserted\":" << non_note_inserted
+	           << ",\"nonNoteRejected\":" << non_note_rejected
 	           << "}"
 	           << ",\"warnings\":" << json_string_array (warnings);
 	if (target_track) {

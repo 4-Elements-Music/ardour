@@ -2684,7 +2684,12 @@
                       "type": "string",
                       "enum": [
                         "note_on",
-                        "note_off"
+                        "note_off",
+                        "cc",
+                        "pb",
+                        "pgm",
+                        "aftertouch_chan",
+                        "aftertouch_poly"
                       ]
                     },
                     "channel": {
@@ -2694,9 +2699,34 @@
                     },
                     "comment": {
                       "type": "string"
+                    },
+                    "controller": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "value": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "bend": {
+                      "type": "integer",
+                      "minimum": -8192,
+                      "maximum": 8191
+                    },
+                    "program": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "pressure": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
                     }
                   },
-                  "oneOf": [
+                  "anyOf": [
                     {
                       "required": [
                         "comment"
@@ -2713,6 +2743,41 @@
                         "bar",
                         "b",
                         "n"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "bar",
+                        "b",
+                        "type",
+                        "controller",
+                        "value"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "bar",
+                        "b",
+                        "type"
+                      ],
+                      "properties": {
+                        "type": { "const": "pb" }
+                      }
+                    },
+                    {
+                      "required": [
+                        "bar",
+                        "b",
+                        "type",
+                        "program"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "bar",
+                        "b",
+                        "type",
+                        "pressure"
                       ]
                     }
                   ],
