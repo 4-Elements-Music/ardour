@@ -1,4 +1,6 @@
 import { describe, it, before, after } from 'node:test';
+
+const WORKER_FLUSH_MS = 50;
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import fastifyMultipart from '@fastify/multipart';
@@ -86,7 +88,7 @@ describe('audio_region_stretch pre-hook', () => {
       payload: { tool: 'audio_region_stretch', params: { regionId: 'region:abc', timeRatio: 1.5 } },
       headers: { 'content-type': 'application/json' },
     });
-    assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
+    assert.equal(res.statusCode, 202, `expected 202, got ${res.statusCode}: ${res.body}`);
     const body = JSON.parse(res.body);
     assert.equal(body.ok, true);
     assert.match(body.jobId, /^job_/);
@@ -131,25 +133,26 @@ describe('audio_region_stretch pre-hook', () => {
       return { ok: true, content: [{ type: 'text', text: 'proxied' }] };
     };
 
-    const res = await app.inject({
-      method: 'POST',
-      url: `/v1/sessions/${goneId}/actions`,
-      payload: { tool: 'audio_region_stretch', params: { regionId: 'region:gone', timeRatio: 1.5 } },
-      headers: { 'content-type': 'application/json' },
-    });
-    assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/sessions/${goneId}/actions`,
+        payload: { tool: 'audio_region_stretch', params: { regionId: 'region:gone', timeRatio: 1.5 } },
+        headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(res.statusCode, 202, `expected 202, got ${res.statusCode}: ${res.body}`);
 
-    // Yield to the microtask/timer queue so the worker floating promise resolves
-    await new Promise(r => setTimeout(r, 50));
+      // Yield to the microtask/timer queue so the worker floating promise resolves
+      await new Promise(r => setTimeout(r, WORKER_FLUSH_MS));
 
-    // Restore original
-    app.sessionManager.get = originalGet;
-
-    assert.ok(workerGetCalls.includes(goneId),
-      'worker must call sessionManager.get with the session ID');
-    assert.ok(
-      proxyCalls.every(c => !c.session || c.session.id !== goneId),
-      'actionProxy.execute must not be called for the gone session',
-    );
+      assert.ok(workerGetCalls.includes(goneId),
+        'worker must call sessionManager.get with the session ID');
+      assert.ok(
+        proxyCalls.every(c => !c.session || c.session.id !== goneId),
+        'actionProxy.execute must not be called for the gone session',
+      );
+    } finally {
+      app.sessionManager.get = originalGet;
+    }
   });
 });

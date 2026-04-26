@@ -12,6 +12,11 @@ import { JobQueue } from '../lib/job-queue.js';
 // Per-route queue for audio_region_stretch jobs.
 const stretchQueue = new JobQueue();
 
+const STRETCH_LIMITS = {
+  timeRatio: { min: 0.25, max: 4.0 },
+  semitones: { min: -24,  max: 24  },
+};
+
 export async function sessionRoutes(app) {
   // Wire the stretch queue worker once per app registration.
   stretchQueue.onJobReady = async (jobId, spec) => {
@@ -380,23 +385,23 @@ print("label="..cap.label)
       }
       const timeRatio = params.timeRatio ?? 1.0;
       const semitones = params.semitones ?? 0.0;
-      if (typeof timeRatio !== 'number' || timeRatio < 0.25 || timeRatio > 4.0) {
-        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'timeRatio must be a number in [0.25, 4.0]' });
+      if (typeof timeRatio !== 'number' || timeRatio < STRETCH_LIMITS.timeRatio.min || timeRatio > STRETCH_LIMITS.timeRatio.max) {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: `timeRatio must be a number in [${STRETCH_LIMITS.timeRatio.min}, ${STRETCH_LIMITS.timeRatio.max}]` });
       }
-      if (typeof semitones !== 'number' || semitones < -24 || semitones > 24) {
-        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'semitones must be a number in [-24, 24]' });
+      if (typeof semitones !== 'number' || semitones < STRETCH_LIMITS.semitones.min || semitones > STRETCH_LIMITS.semitones.max) {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: `semitones must be a number in [${STRETCH_LIMITS.semitones.min}, ${STRETCH_LIMITS.semitones.max}]` });
       }
       if (timeRatio === 1.0 && semitones === 0.0) {
         return reply.code(400).send({ error_code: 'NO_OP', error: 'timeRatio=1.0 and semitones=0 is a no-op; nothing to do' });
       }
 
       const jobId = 'job_' + randomUUID();
-      const spec = { sessionId: req.params.id, tool: 'audio_region/stretch', params };
+      const spec = { sessionId: req.params.id, params };
       const enqueueResult = stretchQueue.addJob(jobId, spec);
       if (!enqueueResult.accepted) {
-        return reply.code(503).send({ error_code: 'QUEUE_FULL', error: 'stretch queue is full, try later' });
+        return reply.code(429).send({ error_code: 'QUEUE_FULL', error: 'stretch queue is full, try later' });
       }
-      return reply.code(200).send({ ok: true, jobId, status: 'pending' });
+      return reply.code(202).send({ ok: true, jobId, status: 'pending' });
     }
 
     if (tool === 'audio_region_add') {
