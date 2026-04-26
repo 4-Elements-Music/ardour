@@ -133,9 +133,9 @@ describe('audio_region_stretch pre-hook', () => {
 
       const progressRes = await app.inject({
         method: 'GET',
-        url: `/v1/jobs/${jobId}`,
+        url: `/v1/sessions/${sessionId}/jobs/${jobId}`,
       });
-      assert.equal(progressRes.statusCode, 200, `expected 200 from GET /v1/jobs/${jobId}: ${progressRes.body}`);
+      assert.equal(progressRes.statusCode, 200, `expected 200 from GET /v1/sessions/${sessionId}/jobs/${jobId}: ${progressRes.body}`);
       const body = JSON.parse(progressRes.body);
       assert.equal(body.progress?.fraction, 0.5, `expected fraction 0.5, got ${body.progress?.fraction}`);
       assert.equal(body.progress?.phase, 'stretching', `expected phase 'stretching', got ${body.progress?.phase}`);

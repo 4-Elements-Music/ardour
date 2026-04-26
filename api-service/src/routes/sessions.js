@@ -68,9 +68,13 @@ export async function sessionRoutes(app) {
       const result = await stretchPromise;
       settled = true;
       const payload = result.result ?? result;
+      const job = stretchQueue.getJob(jobId);
+      if (job) job.progress = { fraction: 1.0, phase: 'done' };
       stretchQueue.markComplete(jobId, [], { result: payload });
     } catch (err) {
       settled = true;
+      const job = stretchQueue.getJob(jobId);
+      if (job) job.progress = { fraction: job.progress?.fraction ?? null, phase: 'failed' };
       stretchQueue.markFailed(jobId, err.message);
     }
   };
@@ -135,8 +139,9 @@ export async function sessionRoutes(app) {
     return reply.code(200).send({ status: 'stopped' });
   });
 
-  // GET /v1/jobs/:jobId — stretch job status + progress
-  app.get('/jobs/:jobId', async (req, reply) => {
+  // GET /v1/sessions/:id/jobs/:jobId — stretch job status + progress
+  // Scoped under /sessions to avoid collision with jobs.js GET /jobs/:id.
+  app.get('/sessions/:id/jobs/:jobId', async (req, reply) => {
     const job = stretchQueue.getJob(req.params.jobId);
     if (!job) return reply.code(404).send({ error_code: 'NOT_FOUND' });
     const out = { jobId: job.id, status: job.status, progress: job.progress };
