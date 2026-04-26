@@ -83,7 +83,14 @@
 #include "ardour/source.h"
 #include "ardour/stripable.h"
 #include "ardour/tempo.h"
+#include "ardour/timefx_request.h"
 #include "ardour/track.h"
+#include "ardour/stretch.h"
+#include "ardour/pitch.h"
+#include "ardour/filter.h"
+
+#include <rubberband/RubberBandStretcher.h>
+#include "pbd/progress.h"
 
 #include "ardour/luabindings.h"
 #include "lua/luastate.h"
@@ -6867,14 +6874,222 @@ handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
                                   const std::string& id)
 {
 	std::lock_guard<std::mutex> lg (g_audio_region_stretch_mutex);
+
+	/* --- 1. Resolve region -------------------------------------------- */
 	const std::string region_id = root.get<std::string> (
 	    "params.arguments.regionId", "");
 	if (region_id.empty ()) {
 		return audio_region_stretch_validation_error (
 		    id, "INVALID_PARAMS", "regionId required", region_id);
 	}
-	return audio_region_stretch_validation_error (
-	    id, "NOT_IMPLEMENTED", "skeleton only", region_id);
+
+	std::shared_ptr<ARDOUR::Region> region = region_by_mcp_id (region_id);
+	if (!region) {
+		return audio_region_stretch_validation_error (
+		    id, "REGION_NOT_FOUND", "region not found for regionId", region_id);
+	}
+	std::shared_ptr<ARDOUR::AudioRegion> audio_region =
+	    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (region);
+	if (!audio_region) {
+		return audio_region_stretch_validation_error (
+		    id, "NOT_AUDIO_REGION", "regionId resolves to a non-audio region", region_id);
+	}
+
+	/* --- 2. Read parameters ------------------------------------------- */
+	const double      time_ratio       = root.get<double>      ("params.arguments.timeRatio",       1.0);
+	const double      semitones        = root.get<double>      ("params.arguments.semitones",        0.0);
+	const bool        preserve_formants = root.get<bool>       ("params.arguments.preserveFormants", false);
+	const std::string engine           = root.get<std::string> ("params.arguments.engine",           "finer");
+	const int         crispness        = root.get<int>         ("params.arguments.crispness",        5);
+
+	/* --- 3. Validate -------------------------------------------------- */
+	if (time_ratio == 1.0 && semitones == 0.0) {
+		return audio_region_stretch_validation_error (
+		    id, "NO_OP", "timeRatio=1 and semitones=0 — nothing to do", region_id);
+	}
+	if (time_ratio < 0.25 || time_ratio > 4.0) {
+		return audio_region_stretch_validation_error (
+		    id, "INVALID_PARAMS", "timeRatio out of range [0.25, 4.0]", region_id);
+	}
+	if (semitones < -24.0 || semitones > 24.0) {
+		return audio_region_stretch_validation_error (
+		    id, "INVALID_PARAMS", "semitones out of range [-24, 24]", region_id);
+	}
+
+	/* --- 4. Build TimeFXRequest --------------------------------------- */
+	ARDOUR::TimeFXRequest req;
+	req.algorithm = ARDOUR::TimeFXRequest::Rubberband;
+
+	/* time_fraction is a ratio_t used as the multiplier: ratio_t(N, D) = N/D.
+	 * We use a fixed denominator of 1 000 000 for sub-cent precision. */
+	const int64_t kDen     = 1000000LL;
+	const int64_t kNum     = static_cast<int64_t> (std::round (time_ratio * kDen));
+	req.time_fraction = Temporal::ratio_t (kNum, kDen);
+
+	/* pitch_fraction is a linear ratio (not semitones): 2^(s/12). */
+	req.pitch_fraction = static_cast<float> (std::pow (2.0, semitones / 12.0));
+
+	/* Build Rubber Band options.
+	 * Crispness→flags mapping mirrors the rubberband CLI / editor_timefx.cc:
+	 *   0: no-transients, no-lamination (phase-independent), window-long
+	 *   1: soft-detector, no-lamination, window-long
+	 *   2: no-transients, no-lamination
+	 *   3: no-transients (peaklock on)
+	 *   4: band-limited transients
+	 *   5: default — crisp transients, peaklock (default)
+	 *   6: no-lamination, window-short
+	 */
+	using RBS = RubberBand::RubberBandStretcher;
+	RBS::Options opts = 0;
+
+	/* Engine */
+#ifdef HAVE_RUBBERBAND_3_0_0
+	if (engine == "faster") {
+		opts |= RBS::OptionEngineFaster;
+	} else {
+		opts |= RBS::OptionEngineFiner;
+	}
+#endif
+
+	/* Formant preservation (only useful when pitch-shifting) */
+	if (preserve_formants && semitones != 0.0) {
+		opts |= RBS::OptionFormantPreserved;
+	}
+
+	/* Crispness */
+	switch (crispness) {
+	case 0:
+		opts |= RBS::OptionTransientsSmooth;
+		opts |= RBS::OptionPhaseIndependent;
+		opts |= RBS::OptionWindowLong;
+		break;
+	case 1:
+		opts |= RBS::OptionDetectorSoft;
+		opts |= RBS::OptionPhaseIndependent;
+		opts |= RBS::OptionWindowLong;
+		break;
+	case 2:
+		opts |= RBS::OptionTransientsSmooth;
+		opts |= RBS::OptionPhaseIndependent;
+		break;
+	case 3:
+		opts |= RBS::OptionTransientsSmooth;
+		break;
+	case 4:
+		opts |= RBS::OptionTransientsMixed;
+		break;
+	case 6:
+		opts |= RBS::OptionPhaseIndependent;
+		opts |= RBS::OptionWindowShort;
+		break;
+	default: /* 5 = default: crisp transients + peaklock */
+		opts |= RBS::OptionTransientsCrisp;
+		break;
+	}
+
+	/* High-quality pitch when semitones != 0 */
+	if (semitones != 0.0) {
+		opts |= RBS::OptionPitchHighQuality;
+	}
+
+	req.opts   = static_cast<int> (opts);
+	req.done   = false;
+	req.cancel = false;
+
+	/* --- 5. Resolve playlist ------------------------------------------ */
+	std::shared_ptr<ARDOUR::Playlist> playlist = region->playlist ();
+	if (!playlist) {
+		return audio_region_stretch_validation_error (
+		    id, "STRETCH_FAILED", "region is not on a playlist", region_id);
+	}
+
+	/* Snapshot length before stretch for response */
+	const ARDOUR::samplecnt_t original_length_samples = region->length_samples ();
+
+	/* Resolve track (for trackId in response) */
+	std::string track_id_out;
+	{
+		std::shared_ptr<ARDOUR::Track> trk =
+		    std::dynamic_pointer_cast<ARDOUR::Track> (
+		        session.route_by_id (playlist->get_orig_track_id ()));
+		if (trk) {
+			track_id_out = trk->id ().to_s ();
+		}
+	}
+
+	/* --- 6. Run the stretch ------------------------------------------- */
+	ARDOUR::RBStretch rbs (session, req);
+
+	/* Concrete no-op progress sink — discards fractions, never cancels. */
+	struct NoOpProgress : public PBD::Progress {
+		void set_overall_progress (float) override {}
+	} progress;
+
+	session.begin_reversible_command ("AI: stretch audio region");
+
+	if (rbs.run (region, &progress) != 0) {
+		session.abort_reversible_command ();
+		return audio_region_stretch_validation_error (
+		    id, "STRETCH_FAILED", "Rubber Band returned non-zero result", region_id);
+	}
+
+	if (rbs.results.empty ()) {
+		session.abort_reversible_command ();
+		return audio_region_stretch_validation_error (
+		    id, "STRETCH_FAILED", "Rubber Band produced no result region", region_id);
+	}
+
+	std::shared_ptr<ARDOUR::Region> new_region = rbs.results.front ();
+
+	/* Install the new region into the playlist, replacing the old one. */
+	playlist->clear_changes ();
+	playlist->replace_region (region, new_region, region->position ());
+	PBD::StatefulDiffCommand* cmd = new PBD::StatefulDiffCommand (playlist);
+	session.add_command (cmd);
+	if (cmd->empty ()) {
+		/* replace_region recorded no diff — playlist unchanged, abort cleanly */
+		session.abort_reversible_command ();
+		return audio_region_stretch_validation_error (
+		    id, "STRETCH_FAILED", "playlist replace recorded no changes", region_id);
+	}
+	session.commit_reversible_command ();
+
+	/* --- 7. Build success response ------------------------------------ */
+	const ARDOUR::samplecnt_t new_length_samples    = new_region->length_samples ();
+	const std::string new_region_id         = new_region->id ().to_s ();
+
+	/* Best-effort: extract new audio source id from the first source of
+	 * the new region (the stretched audio file). */
+	std::string source_created_id;
+	{
+		std::shared_ptr<ARDOUR::AudioRegion> new_ar =
+		    std::dynamic_pointer_cast<ARDOUR::AudioRegion> (new_region);
+		if (new_ar && new_ar->n_channels () > 0) {
+			std::shared_ptr<ARDOUR::Source> src = new_ar->source (0);
+			if (src) {
+				source_created_id = src->id ().to_s ();
+			}
+		}
+	}
+
+	std::ostringstream out;
+	out << "{"
+	    << "\"content\":[{\"type\":\"text\",\"text\":\"Audio region stretched successfully\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":true,"
+	    << "\"regionId\":\""           << json_escape (new_region_id)   << "\","
+	    << "\"trackId\":\""            << json_escape (track_id_out)    << "\","
+	    << "\"originalLengthSamples\":" << original_length_samples      << ","
+	    << "\"newLengthSamples\":"      << new_length_samples           << ","
+	    << "\"timeRatio\":"             << time_ratio                   << ","
+	    << "\"semitones\":"             << semitones                    << ","
+	    << "\"preserveFormants\":"      << (preserve_formants ? "true" : "false") << ","
+	    << "\"engine\":\""             << json_escape (engine)          << "\"";
+	if (!source_created_id.empty ()) {
+		out << ",\"sourceCreated\":\""  << json_escape (source_created_id) << "\"";
+	}
+	out << "}}";
+	return jsonrpc_result (id, out.str ());
 }
 
 static std::string
