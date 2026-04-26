@@ -289,7 +289,10 @@ ARDOUR::TimeFXRequest req;
 req.algorithm = ARDOUR::TimeFXRequest::Rubberband;
 req.time_fraction = Temporal::ratio_t (
     static_cast<int64_t>(time_ratio * 1000000), 1000000);
-req.pitch_fraction = static_cast<float>(semitones);
+// pitch_fraction is a linear frequency ratio, NOT a semitone count.
+// Rubber Band's setPitchScale takes a multiplier (1.0 = no shift,
+// 2^(1/12) = +1 semitone, 2.0 = +1 octave).
+req.pitch_fraction = static_cast<float>(std::pow(2.0, semitones / 12.0));
 // engine + crispness fold into req.opts via RubberBand::Options
 int rb_opts = 0;
 if (engine == "faster") {

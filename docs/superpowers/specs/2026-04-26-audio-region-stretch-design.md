@@ -134,7 +134,9 @@ GET /v1/jobs/:jobId
   "jobId": "job_...",
   "status": "done",
   "result": {
-    "regionId": "region:xyz...",          // SAME regionId; the region is mutated in place
+    "regionId": "region:NEW",             // NEW regionId — Ardour's RBEffect always produces a new
+                                          // Region object; the playlist swaps old for new. Director
+                                          // executors must update their region reference after stretch.
     "trackId": "track:...",
     "originalLengthSamples": 1323000,
     "newLengthSamples": 1587600,
@@ -172,7 +174,9 @@ GET /v1/jobs/:jobId
   - Single `begin_reversible_command` envelope.
 - `TimeFXRequest` constructed with `algorithm = Rubberband`,
   `time_fraction = ratio_t(time_ratio_num, time_ratio_den)`,
-  `pitch_fraction` from semitones.
+  `pitch_fraction = pow(2, semitones/12.0)` (the field is a linear
+  frequency ratio, not a semitone count — Rubber Band's
+  `setPitchScale` consumes a frequency multiplier).
 - `RBEffect::run(region, &progress)` is called directly. The
   existing `Progress` machinery in PBD reports normalized fractions;
   we'll surface that to the Node job-queue side via a server-side
