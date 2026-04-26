@@ -15,9 +15,14 @@ const stretchQueue = new JobQueue();
 export async function sessionRoutes(app) {
   // Wire the stretch queue worker once per app registration.
   stretchQueue.onJobReady = async (jobId, spec) => {
+    const session = app.sessionManager.get(spec.sessionId);
+    if (!session || session.status !== 'ready') {
+      stretchQueue.markFailed(jobId, 'SESSION_GONE');
+      return;
+    }
     try {
       const result = await app.actionProxy.execute(
-        { id: spec.sessionId, status: 'ready' },
+        session,
         'audio_region/stretch',
         spec.params,
       );
