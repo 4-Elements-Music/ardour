@@ -2942,6 +2942,23 @@
       }
     },
     {
+      "name": "audio_region_stretch",
+      "description": "Time-stretch and/or pitch-shift an audio region. Async — returns jobId.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["regionId"],
+        "properties": {
+          "regionId":         { "type": "string" },
+          "timeRatio":        { "type": "number", "minimum": 0.25, "maximum": 4.0, "default": 1.0 },
+          "semitones":        { "type": "number", "minimum": -24,  "maximum": 24,  "default": 0.0 },
+          "preserveFormants": { "type": "boolean", "default": false },
+          "engine":           { "type": "string",  "enum": ["finer", "faster"], "default": "finer" },
+          "crispness":        { "type": "integer", "minimum": 0, "maximum": 6, "default": 5 },
+          "requestId":        { "type": "string" }
+        }
+      }
+    },
+    {
       "name": "preset/capture",
       "title": "Capture Current Preset",
       "description": "Snapshots the current plugin state on a track as an Ardour user preset (save_preset) and records its URI in the preset index. After this, preset/load can restore it on any fresh plugin instance. Both `track` and `presetName` are optional: omit `track` to auto-detect the currently-selected track in Ardour, and omit `presetName` to auto-name as '<Plugin> — <timestamp>'.",

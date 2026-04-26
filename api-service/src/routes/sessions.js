@@ -5,9 +5,29 @@
  */
 import { mkdir, stat, writeFile } from 'fs/promises';
 import { join as joinPath, resolve as resolvePath, relative } from 'path';
+import { randomUUID } from 'crypto';
 import { decodeToCanonicalWav } from '../lib/sandbox-decode.js';
+import { JobQueue } from '../lib/job-queue.js';
+
+// Per-route queue for audio_region_stretch jobs.
+const stretchQueue = new JobQueue();
 
 export async function sessionRoutes(app) {
+  // Wire the stretch queue worker once per app registration.
+  stretchQueue.onJobReady = async (jobId, spec) => {
+    try {
+      const result = await app.actionProxy.execute(
+        { id: spec.sessionId, status: 'ready' },
+        'audio_region/stretch',
+        spec.params,
+      );
+      const payload = result.result ?? result;
+      stretchQueue.markComplete(jobId, [], { result: payload });
+    } catch (err) {
+      stretchQueue.markFailed(jobId, err.message);
+    }
+  };
+
   // POST /v1/sessions — create session (202 Accepted)
   app.post('/sessions', async (req, reply) => {
     const body = req.body || {};
@@ -345,6 +365,33 @@ print("label="..cap.label)
       } catch (e) {
         return reply.code(500).send({ error_code: 'CAPTURE_FAILED', message: e.message });
       }
+    }
+
+    if (tool === 'audio_region_stretch') {
+      params = { ...(params || {}) };
+      const regionId = params.regionId;
+      if (!regionId || typeof regionId !== 'string' || regionId.trim() === '') {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'regionId required' });
+      }
+      const timeRatio = params.timeRatio ?? 1.0;
+      const semitones = params.semitones ?? 0.0;
+      if (typeof timeRatio !== 'number' || timeRatio < 0.25 || timeRatio > 4.0) {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'timeRatio must be a number in [0.25, 4.0]' });
+      }
+      if (typeof semitones !== 'number' || semitones < -24 || semitones > 24) {
+        return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'semitones must be a number in [-24, 24]' });
+      }
+      if (timeRatio === 1.0 && semitones === 0.0) {
+        return reply.code(400).send({ error_code: 'NO_OP', error: 'timeRatio=1.0 and semitones=0 is a no-op; nothing to do' });
+      }
+
+      const jobId = 'job_' + randomUUID();
+      const spec = { sessionId: req.params.id, tool: 'audio_region/stretch', params };
+      const enqueueResult = stretchQueue.addJob(jobId, spec);
+      if (!enqueueResult.accepted) {
+        return reply.code(503).send({ error_code: 'QUEUE_FULL', error: 'stretch queue is full, try later' });
+      }
+      return reply.code(200).send({ ok: true, jobId, status: 'pending' });
     }
 
     if (tool === 'audio_region_add') {
