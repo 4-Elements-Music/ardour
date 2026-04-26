@@ -96,7 +96,7 @@ describe('audio_region_stretch pre-hook', () => {
     assert.equal(body.status, 'pending');
   });
 
-  it('GET /v1/jobs/:jobId reports live progress while stretch is in flight', async () => {
+  it('GET /v1/sessions/:id/jobs/:jobId reports live progress while stretch is in flight', async () => {
     // Speed up the polling loop so it fires well within the test window.
     const origPollMs = globalConfig.stretchProgressPollMs;
     globalConfig.stretchProgressPollMs = 20;
