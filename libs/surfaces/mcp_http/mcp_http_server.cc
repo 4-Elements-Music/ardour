@@ -6842,6 +6842,7 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	return jsonrpc_result (id, out.str ());
 }
 
+// See g_audio_region_add_mutex above for the per-session/per-process reasoning.
 static std::mutex g_audio_region_stretch_mutex;
 
 static std::string
@@ -6850,19 +6851,18 @@ audio_region_stretch_validation_error (const std::string& id,
                                        const std::string& message,
                                        const std::string& region_id)
 {
-	pt::ptree resp;
-	resp.put ("jsonrpc", "2.0");
-	resp.put ("id", id);
-	resp.put ("result.ok", false);
-	resp.put ("result.code", code);
-	resp.put ("result.message", message);
-	resp.put ("result.regionId", region_id);
-	std::ostringstream oss;
-	pt::write_json (oss, resp, false);
-	return oss.str ();
+	std::ostringstream out;
+	out << "{\"content\":[{\"type\":\"text\",\"text\":\"" << json_escape (message) << "\"}],"
+	    << "\"structuredContent\":{"
+	    << "\"ok\":false,"
+	    << "\"failedAt\":\"validation\","
+	    << "\"error\":{\"code\":\"" << code << "\",\"message\":\"" << json_escape (message) << "\"},"
+	    << "\"regionId\":\"" << json_escape (region_id) << "\""
+	    << "}}";
+	return jsonrpc_result (id, out.str ());
 }
 
-std::string
+static std::string
 handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
                                   const std::string& id)
 {
