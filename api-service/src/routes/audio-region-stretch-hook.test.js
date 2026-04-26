@@ -1,6 +1,4 @@
 import { describe, it, before, after } from 'node:test';
-
-const WORKER_FLUSH_MS = 50;
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import fastifyMultipart from '@fastify/multipart';
@@ -10,6 +8,8 @@ import { RequestCache } from '../lib/request-cache.js';
 import { mkdirSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
+
+const WORKER_FLUSH_MS = 50;
 
 describe('audio_region_stretch pre-hook', () => {
   let app, sessionManager, sessionId, tmp;
