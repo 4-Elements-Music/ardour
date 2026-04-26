@@ -2959,6 +2959,18 @@
       }
     },
     {
+      "name": "job/progress_query",
+      "description": "Query the live progress fraction for an in-flight audio_region_stretch job. Returns fraction in [0,1] while stretching, null when the requestId is not in flight.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["requestId"],
+        "properties": {
+          "requestId": { "type": "string", "description": "The requestId passed to audio_region_stretch (defaults to jobId)." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "preset/capture",
       "title": "Capture Current Preset",
       "description": "Snapshots the current plugin state on a track as an Ardour user preset (save_preset) and records its URI in the preset index. After this, preset/load can restore it on any fresh plugin instance. Both `track` and `presetName` are optional: omit `track` to auto-detect the currently-selected track in Ardour, and omit `presetName` to auto-name as '<Plugin> — <timestamp>'.",

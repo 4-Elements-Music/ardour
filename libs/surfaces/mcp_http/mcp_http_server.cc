@@ -6851,6 +6851,34 @@ handle_audio_region_add_tool (ARDOUR::Session& session, pt::ptree& root, const s
 	return jsonrpc_result (id, out.str ());
 }
 
+/* ============================================================
+ *  Global progress map — keyed by requestId, written by StretchProgress,
+ *  read by the job/progress_query handler.
+ * ============================================================ */
+static std::mutex              g_progress_mutex;
+static std::map<std::string, double> g_progress;
+
+class StretchProgress : public PBD::Progress {
+public:
+	explicit StretchProgress (const std::string& key) : _key (key)
+	{
+		std::lock_guard<std::mutex> lg (g_progress_mutex);
+		g_progress[_key] = 0.0;
+	}
+	~StretchProgress () override
+	{
+		std::lock_guard<std::mutex> lg (g_progress_mutex);
+		g_progress.erase (_key);
+	}
+	void set_overall_progress (float frac) override
+	{
+		std::lock_guard<std::mutex> lg (g_progress_mutex);
+		g_progress[_key] = static_cast<double> (frac);
+	}
+private:
+	std::string _key;
+};
+
 // See g_audio_region_add_mutex above for the per-session/per-process reasoning.
 static std::mutex g_audio_region_stretch_mutex;
 
@@ -6903,6 +6931,7 @@ handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
 	const bool        preserve_formants = root.get<bool>       ("params.arguments.preserveFormants", false);
 	const std::string engine           = root.get<std::string> ("params.arguments.engine",           "finer");
 	const int         crispness        = root.get<int>         ("params.arguments.crispness",        5);
+	const std::string request_id       = root.get<std::string> ("params.arguments.requestId",        "");
 
 	/* --- 3. Validate -------------------------------------------------- */
 	if (time_ratio == 1.0 && semitones == 0.0) {
@@ -7021,16 +7050,27 @@ handle_audio_region_stretch_tool (ARDOUR::Session& session, pt::ptree& root,
 	/* --- 6. Run the stretch ------------------------------------------- */
 	ARDOUR::RBStretch rbs (session, req);
 
-	/* Concrete no-op progress sink — discards fractions, never cancels. */
+	/* Use StretchProgress when a requestId is provided so callers can poll
+	 * job/progress_query; fall back to a no-op sink otherwise. */
 	struct NoOpProgress : public PBD::Progress {
 		void set_overall_progress (float) override {}
-	} progress;
+	};
+
+	std::unique_ptr<PBD::Progress> progress_owner;
+	PBD::Progress*                 progress_ptr;
+	if (!request_id.empty ()) {
+		progress_owner.reset (new StretchProgress (request_id));
+		progress_ptr = progress_owner.get ();
+	} else {
+		progress_owner.reset (new NoOpProgress ());
+		progress_ptr = progress_owner.get ();
+	}
 
 	session.begin_reversible_command ("AI: stretch audio region");
 
 	std::shared_ptr<ARDOUR::Region> new_region;
 	try {
-		if (rbs.run (region, &progress) != 0) {
+		if (rbs.run (region, progress_ptr) != 0) {
 			session.abort_reversible_command ();
 			return audio_region_stretch_validation_error (
 			    id, "STRETCH_FAILED", "Rubber Band returned non-zero result", region_id);
@@ -9184,6 +9224,37 @@ dispatch_audio_region_tool_call (ARDOUR::Session& session, const std::string& to
 	}
 	if (tool_name == "audio_region/stretch") {
 		response = handle_audio_region_stretch_tool (session, root, id);
+		return true;
+	}
+	if (tool_name == "job/progress_query") {
+		const std::string req_id = root.get<std::string> ("params.arguments.requestId", "");
+		double fraction = -1.0;
+		bool   found    = false;
+		{
+			std::lock_guard<std::mutex> lg (g_progress_mutex);
+			auto it = g_progress.find (req_id);
+			if (it != g_progress.end ()) {
+				fraction = it->second;
+				found    = true;
+			}
+		}
+		std::ostringstream out;
+		if (found) {
+			out << "{\"content\":[{\"type\":\"text\",\"text\":\"progress\"}],"
+			    << "\"structuredContent\":{"
+			    << "\"ok\":true,"
+			    << "\"fraction\":" << fraction << ","
+			    << "\"phase\":\"stretching\""
+			    << "}}";
+		} else {
+			out << "{\"content\":[{\"type\":\"text\",\"text\":\"progress\"}],"
+			    << "\"structuredContent\":{"
+			    << "\"ok\":true,"
+			    << "\"fraction\":null,"
+			    << "\"phase\":\"unknown\""
+			    << "}}";
+		}
+		response = jsonrpc_result (id, out.str ());
 		return true;
 	}
 

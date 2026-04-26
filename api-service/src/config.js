@@ -45,6 +45,7 @@ export const config = {
   maxBatchSize: parseInt(process.env.MAX_BATCH_SIZE || '100', 10),
   maxSessionUploadBytes: parseInt(process.env.MAX_SESSION_UPLOAD_BYTES || '1073741824', 10),
   maxSessionExportBytes: parseInt(process.env.MAX_SESSION_EXPORT_BYTES || '2147483648', 10),
+  stretchProgressPollMs: parseInt(process.env.STRETCH_PROGRESS_POLL_MS || '1000', 10),
   ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
   ffprobeBin: process.env.FFPROBE_BIN || 'ffprobe',
   audioValidatorBin: process.env.AUDIO_VALIDATOR_BIN

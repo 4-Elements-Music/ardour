@@ -8,6 +8,7 @@ import { join as joinPath, resolve as resolvePath, relative } from 'path';
 import { randomUUID } from 'crypto';
 import { decodeToCanonicalWav } from '../lib/sandbox-decode.js';
 import { JobQueue } from '../lib/job-queue.js';
+import { config as globalConfig } from '../config.js';
 
 // Per-route queue for audio_region_stretch jobs.
 const stretchQueue = new JobQueue();
@@ -25,15 +26,51 @@ export async function sessionRoutes(app) {
       stretchQueue.markFailed(jobId, 'SESSION_GONE');
       return;
     }
+
+    const requestId = spec.params.requestId || jobId;
+    let settled = false;
+
+    // Kick off the stretch call as a floating promise so we can poll concurrently.
+    const stretchPromise = app.actionProxy.execute(
+      session,
+      'audio_region/stretch',
+      spec.params,
+    );
+
+    // Poll job/progress_query every ~stretchProgressPollMs while the stretch is running.
+    // We don't await this — it runs until `settled` flips true.
+    const pollMs = globalConfig.stretchProgressPollMs;
+    (async () => {
+      while (!settled) {
+        await new Promise((r) => setTimeout(r, pollMs));
+        if (settled) break;
+        try {
+          const pResult = await app.actionProxy.execute(
+            session,
+            'job/progress_query',
+            { requestId },
+          );
+          const pPayload = pResult?.result ?? pResult;
+          const structured = pPayload?.structuredContent ?? pPayload;
+          if (structured?.ok) {
+            const job = stretchQueue.getJob(jobId);
+            if (job) {
+              job.progress = { fraction: structured.fraction ?? null, phase: structured.phase ?? 'stretching' };
+            }
+          }
+        } catch {
+          // Swallow poll errors — stretch may have just finished.
+        }
+      }
+    })();
+
     try {
-      const result = await app.actionProxy.execute(
-        session,
-        'audio_region/stretch',
-        spec.params,
-      );
+      const result = await stretchPromise;
+      settled = true;
       const payload = result.result ?? result;
       stretchQueue.markComplete(jobId, [], { result: payload });
     } catch (err) {
+      settled = true;
       stretchQueue.markFailed(jobId, err.message);
     }
   };
@@ -96,6 +133,16 @@ export async function sessionRoutes(app) {
     }
     await app.sessionManager.destroy(req.params.id);
     return reply.code(200).send({ status: 'stopped' });
+  });
+
+  // GET /v1/jobs/:jobId — stretch job status + progress
+  app.get('/jobs/:jobId', async (req, reply) => {
+    const job = stretchQueue.getJob(req.params.jobId);
+    if (!job) return reply.code(404).send({ error_code: 'NOT_FOUND' });
+    const out = { jobId: job.id, status: job.status, progress: job.progress };
+    if (job.status === 'complete') out.result = job.analysis?.result ?? null;
+    if (job.status === 'failed') out.error = job.error;
+    return out;
   });
 
   // POST /v1/sessions/:id/actions
@@ -396,6 +443,11 @@ print("label="..cap.label)
       }
 
       const jobId = 'job_' + randomUUID();
+      // Use the jobId as the requestId so the C++ StretchProgress can key g_progress.
+      // Honor a caller-supplied requestId when present.
+      if (!params.requestId) {
+        params.requestId = jobId;
+      }
       const spec = { sessionId: req.params.id, params };
       const enqueueResult = stretchQueue.addJob(jobId, spec);
       if (!enqueueResult.accepted) {

@@ -5,6 +5,7 @@ import fastifyMultipart from '@fastify/multipart';
 import { sessionRoutes } from './sessions.js';
 import { SessionManager } from '../lib/session-manager.js';
 import { RequestCache } from '../lib/request-cache.js';
+import { config as globalConfig } from '../config.js';
 import { mkdirSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -93,6 +94,58 @@ describe('audio_region_stretch pre-hook', () => {
     assert.equal(body.ok, true);
     assert.match(body.jobId, /^job_/);
     assert.equal(body.status, 'pending');
+  });
+
+  it('GET /v1/jobs/:jobId reports live progress while stretch is in flight', async () => {
+    // Speed up the polling loop so it fires well within the test window.
+    const origPollMs = globalConfig.stretchProgressPollMs;
+    globalConfig.stretchProgressPollMs = 20;
+
+    let resolveStretch;
+    app.actionProxy.execute = async (session, tool, params) => {
+      if (tool === 'audio_region/stretch') {
+        // Simulate a ~200 ms stretch — resolved externally so we can check mid-flight.
+        return new Promise((r) => { resolveStretch = r; });
+      }
+      if (tool === 'job/progress_query') {
+        return {
+          ok: true,
+          structuredContent: { ok: true, fraction: 0.5, phase: 'stretching' },
+        };
+      }
+      return { ok: true, content: [{ type: 'text', text: 'proxied' }] };
+    };
+
+    try {
+      // Dispatch the stretch job.
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/sessions/${sessionId}/actions`,
+        payload: { tool: 'audio_region_stretch', params: { regionId: 'region:progress-test', timeRatio: 1.5 } },
+        headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(res.statusCode, 202, `expected 202, got ${res.statusCode}: ${res.body}`);
+      const { jobId } = JSON.parse(res.body);
+
+      // Wait long enough for: worker to start (microtask), first poll delay (20 ms), poll
+      // execute, and job.progress to be written — then inspect via the GET route.
+      await new Promise((r) => setTimeout(r, 100));
+
+      const progressRes = await app.inject({
+        method: 'GET',
+        url: `/v1/jobs/${jobId}`,
+      });
+      assert.equal(progressRes.statusCode, 200, `expected 200 from GET /v1/jobs/${jobId}: ${progressRes.body}`);
+      const body = JSON.parse(progressRes.body);
+      assert.equal(body.progress?.fraction, 0.5, `expected fraction 0.5, got ${body.progress?.fraction}`);
+      assert.equal(body.progress?.phase, 'stretching', `expected phase 'stretching', got ${body.progress?.phase}`);
+    } finally {
+      // Let the stretch resolve so the worker doesn't hang.
+      if (resolveStretch) resolveStretch({ ok: true, content: [{ type: 'text', text: 'done' }] });
+      globalConfig.stretchProgressPollMs = origPollMs;
+      // Give worker time to settle.
+      await new Promise((r) => setTimeout(r, WORKER_FLUSH_MS));
+    }
   });
 
   it('worker does not call actionProxy.execute when sessionManager returns null for the session', async () => {
