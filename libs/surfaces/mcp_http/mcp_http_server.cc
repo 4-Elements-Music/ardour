@@ -2334,6 +2334,12 @@ plugin_list_json (const std::shared_ptr<ARDOUR::Route>& route)
 		}
 		first = false;
 
+		const std::shared_ptr<ARDOUR::PluginInsert> pi =
+		    std::dynamic_pointer_cast<ARDOUR::PluginInsert> (p);
+		const bool is_instrument =
+		    pi && pi->plugin () && pi->plugin ()->get_info ()
+		        && pi->plugin ()->get_info ()->is_instrument ();
+
 		ss << "{\"index\":" << i
 		   << ",\"name\":\"" << json_escape (p->name ()) << "\""
 		   << ",\"displayName\":\"" << json_escape (p->display_name ()) << "\""
@@ -2341,6 +2347,7 @@ plugin_list_json (const std::shared_ptr<ARDOUR::Route>& route)
 		   << ",\"postFader\":" << (p->get_pre_fader () ? "false" : "true")
 		   << ",\"active\":" << (p->active () ? "true" : "false")
 		   << ",\"enabled\":" << (p->enabled () ? "true" : "false")
+		   << ",\"isInstrument\":" << (is_instrument ? "true" : "false")
 		   << "}";
 	}
 
