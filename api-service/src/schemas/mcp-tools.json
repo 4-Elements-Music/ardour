@@ -3048,6 +3048,33 @@
       }
     },
     {
+      "name": "plugin/list_programs",
+      "description": "List the programs/patches/presets exposed by a loaded plugin (e.g. Kontakt patches, Pianoteq presets, Diva patches). Returns the indexed list of available presets — Ardour's unified preset surface, which covers both factory and user presets.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "pluginIndex"],
+        "additionalProperties": false,
+        "properties": {
+          "trackId":     { "type": "string" },
+          "pluginIndex": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "name": "plugin/set_program",
+      "description": "Switch a loaded plugin's active program/patch by index. Returns the loaded program's index and label so callers can confirm.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "pluginIndex", "programIndex"],
+        "additionalProperties": false,
+        "properties": {
+          "trackId":      { "type": "string" },
+          "pluginIndex":  { "type": "integer", "minimum": 0 },
+          "programIndex": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
       "name": "preset/capture",
       "title": "Capture Current Preset",
       "description": "Snapshots the current plugin state on a track as an Ardour user preset (save_preset) and records its URI in the preset index. After this, preset/load can restore it on any fresh plugin instance. Both `track` and `presetName` are optional: omit `track` to auto-detect the currently-selected track in Ardour, and omit `presetName` to auto-name as '<Plugin> — <timestamp>'.",

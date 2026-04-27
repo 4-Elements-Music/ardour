@@ -5863,6 +5863,122 @@ handle_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop, c
 		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"") + (reached_target ? "Plugin order updated" : (moved ? "Plugin order changed" : "Plugin order unchanged")) + "\"}],\"structuredContent\":" + structured.str () + "}");
 	}
 
+	if (tool_name == "plugin/list_programs") {
+		const std::string route_id     = root.get<std::string> ("params.arguments.trackId", "");
+		const int         plugin_index = root.get<int> ("params.arguments.pluginIndex", -1);
+
+		if (route_id.empty ()) {
+			return jsonrpc_error (id, -32602, "Missing trackId");
+		}
+		if (plugin_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid pluginIndex (expected >= 0)");
+		}
+
+		const std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (_session, route_id);
+		if (!route) {
+			return jsonrpc_error (id, -32602, "Route not found");
+		}
+
+		std::shared_ptr<ARDOUR::Processor> proc = route->nth_plugin (plugin_index);
+		if (!proc) {
+			return jsonrpc_error (id, -32602, "Plugin not found");
+		}
+
+		std::shared_ptr<ARDOUR::PluginInsert> pi = std::dynamic_pointer_cast<ARDOUR::PluginInsert> (proc);
+		if (!pi) {
+			return jsonrpc_error (id, -32602, "Processor is not a plugin");
+		}
+
+		std::shared_ptr<ARDOUR::Plugin> pip = pi->plugin ();
+		if (!pip) {
+			return jsonrpc_error (id, -32602, "Plugin instance unavailable");
+		}
+
+		const std::vector<ARDOUR::Plugin::PresetRecord> presets = pip->get_presets ();
+
+		std::ostringstream programs_json;
+		programs_json << "[";
+		for (size_t i = 0; i < presets.size (); ++i) {
+			if (i > 0) programs_json << ",";
+			programs_json << "{"
+			              << "\"index\":" << i
+			              << ",\"uri\":\"" << json_escape (presets[i].uri) << "\""
+			              << ",\"label\":\"" << json_escape (presets[i].label) << "\""
+			              << "}";
+		}
+		programs_json << "]";
+
+		std::ostringstream structured;
+		structured << "{\"ok\":true"
+		           << ",\"trackId\":\"" << json_escape (route->id ().to_s ()) << "\""
+		           << ",\"pluginIndex\":" << plugin_index
+		           << ",\"pluginName\":\"" << json_escape (proc->name ()) << "\""
+		           << ",\"programs\":" << programs_json.str ()
+		           << "}";
+
+		return jsonrpc_result (
+		    id,
+		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"Plugin programs listed\"}],\"structuredContent\":") + structured.str () + "}");
+	}
+
+	if (tool_name == "plugin/set_program") {
+		const std::string route_id      = root.get<std::string> ("params.arguments.trackId", "");
+		const int         plugin_index  = root.get<int> ("params.arguments.pluginIndex", -1);
+		const int         program_index = root.get<int> ("params.arguments.programIndex", -1);
+
+		if (route_id.empty ()) {
+			return jsonrpc_error (id, -32602, "Missing trackId");
+		}
+		if (plugin_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid pluginIndex (expected >= 0)");
+		}
+		if (program_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid programIndex (expected >= 0)");
+		}
+
+		const std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (_session, route_id);
+		if (!route) {
+			return jsonrpc_error (id, -32602, "Route not found");
+		}
+
+		std::shared_ptr<ARDOUR::Processor> proc = route->nth_plugin (plugin_index);
+		if (!proc) {
+			return jsonrpc_error (id, -32602, "Plugin not found");
+		}
+
+		std::shared_ptr<ARDOUR::PluginInsert> pi = std::dynamic_pointer_cast<ARDOUR::PluginInsert> (proc);
+		if (!pi) {
+			return jsonrpc_error (id, -32602, "Processor is not a plugin");
+		}
+
+		std::shared_ptr<ARDOUR::Plugin> pip = pi->plugin ();
+		if (!pip) {
+			return jsonrpc_error (id, -32602, "Plugin instance unavailable");
+		}
+
+		const std::vector<ARDOUR::Plugin::PresetRecord> presets = pip->get_presets ();
+		if ((size_t)program_index >= presets.size ()) {
+			return jsonrpc_error (id, -32602, "PROGRAM_NOT_FOUND: programIndex out of range");
+		}
+
+		const ARDOUR::Plugin::PresetRecord& preset = presets[(size_t)program_index];
+		const bool load_ok = pip->load_preset (preset);
+
+		std::ostringstream structured;
+		structured << "{\"ok\":" << (load_ok ? "true" : "false")
+		           << ",\"trackId\":\"" << json_escape (route->id ().to_s ()) << "\""
+		           << ",\"pluginIndex\":" << plugin_index
+		           << ",\"pluginName\":\"" << json_escape (proc->name ()) << "\""
+		           << ",\"loadedProgramIndex\":" << program_index
+		           << ",\"loadedProgramName\":\"" << json_escape (preset.label) << "\""
+		           << ",\"loadedProgramUri\":\"" << json_escape (preset.uri) << "\""
+		           << "}";
+
+		return jsonrpc_result (
+		    id,
+		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"Plugin program set\"}],\"structuredContent\":") + structured.str () + "}");
+	}
+
 	if (tool_name == "plugin/set_position") {
 		const std::string         route_id       = root.get<std::string> ("params.arguments.id", "");
 		const int                 plugin_index   = root.get<int> ("params.arguments.pluginIndex", -1);
