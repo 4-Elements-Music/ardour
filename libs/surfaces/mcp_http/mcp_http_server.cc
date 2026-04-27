@@ -1710,6 +1710,9 @@ parse_midi_json_events (
 				return false;
 			}
 			out.pressure = (int)*pres_opt;
+		} else if (type != "note_on" && type != "note_off") {
+			error = "UNKNOWN_EVENT_TYPE: type must be one of note_on/note_off/cc/pb/pgm/aftertouch_chan/aftertouch_poly; got: " + type;
+			return false;
 		}
 
 		expanded_events.push_back (out);

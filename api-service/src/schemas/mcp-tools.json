@@ -2743,7 +2743,10 @@
                         "bar",
                         "b",
                         "n"
-                      ]
+                      ],
+                      "properties": {
+                        "type": { "enum": ["note_on", "note_off"] }
+                      }
                     },
                     {
                       "required": [
@@ -2752,7 +2755,10 @@
                         "type",
                         "controller",
                         "value"
-                      ]
+                      ],
+                      "properties": {
+                        "type": { "const": "cc" }
+                      }
                     },
                     {
                       "required": [
@@ -2770,7 +2776,10 @@
                         "b",
                         "type",
                         "program"
-                      ]
+                      ],
+                      "properties": {
+                        "type": { "const": "pgm" }
+                      }
                     },
                     {
                       "required": [
@@ -2778,7 +2787,10 @@
                         "b",
                         "type",
                         "pressure"
-                      ]
+                      ],
+                      "properties": {
+                        "type": { "enum": ["aftertouch_chan", "aftertouch_poly"] }
+                      }
                     }
                   ],
                   "additionalProperties": false

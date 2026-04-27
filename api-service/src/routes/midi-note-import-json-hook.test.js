@@ -10,9 +10,14 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import fastifyMultipart from '@fastify/multipart';
+import Ajv from 'ajv';
+import { createRequire } from 'node:module';
 import { sessionRoutes } from './sessions.js';
 import { SessionManager } from '../lib/session-manager.js';
 import { RequestCache } from '../lib/request-cache.js';
+
+const _require = createRequire(import.meta.url);
+const _toolSchemas = _require('../schemas/mcp-tools.json');
 
 /* ---------- minimal fakes ---------- */
 
@@ -212,5 +217,25 @@ describe('midi_note/import_json — extended event types', () => {
     });
 
     assert.equal(res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+  });
+
+  it('schema rejects unknown event type — type enum violation', () => {
+    // Validate directly via AJV to confirm the schema amendment correctly
+    // rejects {type: "wat"} before it reaches the C++ handler.
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const tool = _toolSchemas.tools.find(t => t.name === 'midi_note_import_json');
+    const validate = ajv.compile(tool.inputSchema);
+
+    const valid = validate({
+      regionId: 'region:abc123',
+      midi: {
+        channel: 1,
+        channel_base: 'one',
+        midi_events: [{ bar: 1, b: 1, type: 'wat', n: 60, v: 100 }],
+      },
+    });
+    assert.equal(valid, false, 'Schema must reject unknown event type "wat"');
+    const hasEnumError = validate.errors.some(e => e.keyword === 'enum' || e.keyword === 'const');
+    assert.ok(hasEnumError, `Expected enum/const error; got: ${JSON.stringify(validate.errors)}`);
   });
 });
