@@ -5958,15 +5958,17 @@ handle_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop, c
 
 		const std::vector<ARDOUR::Plugin::PresetRecord> presets = pip->get_presets ();
 		if ((size_t)program_index >= presets.size ()) {
-			return jsonrpc_error (id, -32602, "PROGRAM_NOT_FOUND: programIndex out of range");
+			return jsonrpc_error (id, -32602, "programIndex out of range");
 		}
 
 		const ARDOUR::Plugin::PresetRecord& preset = presets[(size_t)program_index];
 		const bool load_ok = pip->load_preset (preset);
+		if (!load_ok) {
+			return jsonrpc_error (id, -32000, "Failed to load preset");
+		}
 
 		std::ostringstream structured;
-		structured << "{\"ok\":" << (load_ok ? "true" : "false")
-		           << ",\"trackId\":\"" << json_escape (route->id ().to_s ()) << "\""
+		structured << "{\"trackId\":\"" << json_escape (route->id ().to_s ()) << "\""
 		           << ",\"pluginIndex\":" << plugin_index
 		           << ",\"pluginName\":\"" << json_escape (proc->name ()) << "\""
 		           << ",\"loadedProgramIndex\":" << program_index

@@ -99,7 +99,9 @@ describe ('plugin/list_programs', () => {
     if (app) await app.close ();
   });
 
-  it ('rejects missing trackId with 400 INVALID_PARAMS', async () => {
+  it ('forwards missing trackId to actionProxy (C++ validates)', async () => {
+    fakeProxyCalls.length = 0;
+
     const res = await app.inject ({
       method: 'POST',
       url: `/v1/sessions/${sessionId}/actions`,
@@ -109,18 +111,13 @@ describe ('plugin/list_programs', () => {
       },
       headers: { 'content-type': 'application/json' },
     });
-    // The JS layer forwards to actionProxy which calls C++; missing trackId
-    // causes C++ to emit a JSON-RPC error. The proxy raises an error that
-    // maps to 400 or the result passes through. Accept either 400 or a
-    // result with ok:false / error indicating missing param.
-    // Since the C++ handler is mocked out at the actionProxy boundary,
-    // we verify the call was forwarded (proxy called) or rejected upstream.
-    // With a stub proxy that always returns ok:true, we just verify 200 + forwarded.
-    // The real validation lives in C++; here we test JS forwards the call unchanged.
-    assert.ok ([200, 400].includes (res.statusCode), `Unexpected status ${res.statusCode}: ${res.body}`);
+    assert.equal (res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+    assert.equal (fakeProxyCalls.length, 1, 'actionProxy.execute called exactly once');
   });
 
-  it ('rejects missing pluginIndex with 400 INVALID_PARAMS', async () => {
+  it ('forwards missing pluginIndex to actionProxy (C++ validates)', async () => {
+    fakeProxyCalls.length = 0;
+
     const res = await app.inject ({
       method: 'POST',
       url: `/v1/sessions/${sessionId}/actions`,
@@ -130,7 +127,8 @@ describe ('plugin/list_programs', () => {
       },
       headers: { 'content-type': 'application/json' },
     });
-    assert.ok ([200, 400].includes (res.statusCode), `Unexpected status ${res.statusCode}: ${res.body}`);
+    assert.equal (res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+    assert.equal (fakeProxyCalls.length, 1, 'actionProxy.execute called exactly once');
   });
 
   it ('accepts valid params and forwards to actionProxy', async () => {
@@ -182,7 +180,7 @@ describe ('plugin/set_program', () => {
     if (app) await app.close ();
   });
 
-  it ('rejects missing programIndex with forwarded call (C++ validates)', async () => {
+  it ('forwards missing programIndex to actionProxy (C++ validates)', async () => {
     fakeProxyCalls.length = 0;
 
     const res = await app.inject ({
@@ -194,8 +192,8 @@ describe ('plugin/set_program', () => {
       },
       headers: { 'content-type': 'application/json' },
     });
-    // JS layer has no programIndex guard; call reaches actionProxy (or C++ rejects).
-    assert.ok ([200, 400].includes (res.statusCode), `Unexpected status ${res.statusCode}: ${res.body}`);
+    assert.equal (res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+    assert.equal (fakeProxyCalls.length, 1, 'actionProxy.execute called exactly once');
   });
 
   it ('accepts valid params and forwards to actionProxy, returns loaded program info', async () => {
