@@ -6111,6 +6111,241 @@ handle_plugin_tool_call (ARDOUR::Session& session, PBD::EventLoop* event_loop, c
 		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"") + (reached_target ? "Plugin placement updated" : (moved ? "Plugin placement changed" : "Plugin placement unchanged")) + "\"}],\"structuredContent\":" + structured.str () + "}");
 	}
 
+	if (tool_name == "plugin/automation_add") {
+		/* Required: id (route id), pluginIndex, points: [{timeS, value}, ...].
+		 * Optional: parameterIndex xor controlId. Same disjunction as set_parameter. */
+		const std::string        route_id        = root.get<std::string> ("params.arguments.id", "");
+		const int                plugin_index    = root.get<int> ("params.arguments.pluginIndex", -1);
+		const std::optional<int> parameter_index = get_optional_std<int> (root, "params.arguments.parameterIndex");
+		const std::optional<int> control_id      = get_optional_std<int> (root, "params.arguments.controlId");
+
+		if (route_id.empty ()) {
+			return jsonrpc_error (id, -32602, "Missing route id");
+		}
+		if (plugin_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid pluginIndex (expected >= 0)");
+		}
+		if (!parameter_index && !control_id) {
+			return jsonrpc_error (id, -32602, "Provide one of: parameterIndex or controlId");
+		}
+		if (parameter_index && control_id) {
+			return jsonrpc_error (id, -32602, "Provide only one of: parameterIndex or controlId");
+		}
+		if (parameter_index && *parameter_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid parameterIndex (expected >= 0)");
+		}
+		if (control_id && *control_id < 0) {
+			return jsonrpc_error (id, -32602, "Invalid controlId (expected >= 0)");
+		}
+
+		const boost::optional<const pt::ptree&> points_opt = root.get_child_optional ("params.arguments.points");
+		if (!points_opt || points_opt->empty ()) {
+			return jsonrpc_error (id, -32602, "Empty points list");
+		}
+
+		const std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (_session, route_id);
+		if (!route) {
+			return jsonrpc_error (id, -32602, "Route not found");
+		}
+
+		std::shared_ptr<ARDOUR::Processor> proc = route->nth_plugin (plugin_index);
+		if (!proc) {
+			return jsonrpc_error (id, -32602, "Plugin not found");
+		}
+
+		std::shared_ptr<ARDOUR::PluginInsert> pi = std::dynamic_pointer_cast<ARDOUR::PluginInsert> (proc);
+		if (!pi) {
+			return jsonrpc_error (id, -32602, "Processor is not a plugin");
+		}
+
+		std::shared_ptr<ARDOUR::Plugin> pip = pi->plugin ();
+		if (!pip) {
+			return jsonrpc_error (id, -32602, "Plugin instance unavailable");
+		}
+
+		bool     ok                       = false;
+		uint32_t resolved_control_id      = 0;
+		int      resolved_parameter_index = -1;
+
+		if (parameter_index) {
+			resolved_control_id = pip->nth_parameter ((uint32_t)*parameter_index, ok);
+			if (!ok) {
+				return jsonrpc_error (id, -32602, "parameterIndex out of range");
+			}
+			resolved_parameter_index = *parameter_index;
+		} else {
+			resolved_control_id = (uint32_t)*control_id;
+			for (uint32_t ppi = 0; ppi < pip->parameter_count (); ++ppi) {
+				const uint32_t cid = pip->nth_parameter (ppi, ok);
+				if (!ok) {
+					continue;
+				}
+				if (cid == resolved_control_id) {
+					resolved_parameter_index = (int)ppi;
+					break;
+				}
+			}
+			if (resolved_parameter_index < 0) {
+				return jsonrpc_error (id, -32602, "controlId not found");
+			}
+		}
+
+		if (!(pip->parameter_is_input (resolved_control_id) || pip->parameter_is_control (resolved_control_id))) {
+			return jsonrpc_error (id, -32602, "Parameter is not writable");
+		}
+
+		ARDOUR::ParameterDescriptor pd;
+		if (pip->get_parameter_descriptor (resolved_control_id, pd) != 0) {
+			return jsonrpc_error (id, -32602, "Could not read parameter descriptor");
+		}
+
+		std::shared_ptr<ARDOUR::AutomationControl> c =
+		    pi->automation_control (Evoral::Parameter (ARDOUR::PluginAutomation, 0, resolved_control_id));
+		if (!c) {
+			return jsonrpc_error (id, -32602, "Parameter automation control not available");
+		}
+		if (!c->alist ()) {
+			return jsonrpc_error (id, -32602, "Parameter automation control not available");
+		}
+
+		const ARDOUR::samplecnt_t sr           = _session.sample_rate ();
+		int                       points_added = 0;
+		for (pt::ptree::const_iterator it = points_opt->begin (); it != points_opt->end (); ++it) {
+			const pt::ptree&             pt_node = it->second;
+			const std::optional<double>  t_opt   = get_optional_std<double> (pt_node, "timeS");
+			const std::optional<double>  v_opt   = get_optional_std<double> (pt_node, "value");
+			if (!t_opt || !v_opt) {
+				return jsonrpc_error (id, -32602, "Each point requires timeS and value");
+			}
+			const double t_s = *t_opt;
+			const double v   = *v_opt;
+			if (!std::isfinite (t_s) || t_s < 0.0 || !std::isfinite (v)) {
+				return jsonrpc_error (id, -32602, "Point has non-finite or negative time/value");
+			}
+			const double            clamped      = std::max (c->lower (), std::min (c->upper (), v));
+			const samplepos_t       when_samples = (samplepos_t) std::llround (t_s * (double) sr);
+			if (c->alist ()->editor_add (Temporal::timepos_t (when_samples), clamped, /*with_guard=*/false)) {
+				++points_added;
+			}
+		}
+
+		c->set_automation_state (ARDOUR::Play);
+
+		std::ostringstream structured;
+		structured << "{\"id\":\"" << json_escape (route->id ().to_s ()) << "\""
+		           << ",\"pluginIndex\":" << plugin_index
+		           << ",\"parameterIndex\":" << resolved_parameter_index
+		           << ",\"controlId\":" << resolved_control_id
+		           << ",\"label\":\"" << json_escape (pd.label) << "\""
+		           << ",\"pointsAdded\":" << points_added
+		           << ",\"automationState\":\"Play\""
+		           << "}";
+
+		return jsonrpc_result (
+		    id,
+		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"Plugin parameter automation added\"}],\"structuredContent\":") + structured.str () + "}");
+	}
+
+	if (tool_name == "plugin/automation_clear") {
+		/* Same parameter-resolution preamble as add. */
+		const std::string        route_id        = root.get<std::string> ("params.arguments.id", "");
+		const int                plugin_index    = root.get<int> ("params.arguments.pluginIndex", -1);
+		const std::optional<int> parameter_index = get_optional_std<int> (root, "params.arguments.parameterIndex");
+		const std::optional<int> control_id      = get_optional_std<int> (root, "params.arguments.controlId");
+
+		if (route_id.empty ()) {
+			return jsonrpc_error (id, -32602, "Missing route id");
+		}
+		if (plugin_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid pluginIndex (expected >= 0)");
+		}
+		if (!parameter_index && !control_id) {
+			return jsonrpc_error (id, -32602, "Provide one of: parameterIndex or controlId");
+		}
+		if (parameter_index && control_id) {
+			return jsonrpc_error (id, -32602, "Provide only one of: parameterIndex or controlId");
+		}
+		if (parameter_index && *parameter_index < 0) {
+			return jsonrpc_error (id, -32602, "Invalid parameterIndex (expected >= 0)");
+		}
+		if (control_id && *control_id < 0) {
+			return jsonrpc_error (id, -32602, "Invalid controlId (expected >= 0)");
+		}
+
+		const std::shared_ptr<ARDOUR::Route> route = route_by_mcp_id (_session, route_id);
+		if (!route) {
+			return jsonrpc_error (id, -32602, "Route not found");
+		}
+
+		std::shared_ptr<ARDOUR::Processor> proc = route->nth_plugin (plugin_index);
+		if (!proc) {
+			return jsonrpc_error (id, -32602, "Plugin not found");
+		}
+
+		std::shared_ptr<ARDOUR::PluginInsert> pi = std::dynamic_pointer_cast<ARDOUR::PluginInsert> (proc);
+		if (!pi) {
+			return jsonrpc_error (id, -32602, "Processor is not a plugin");
+		}
+
+		std::shared_ptr<ARDOUR::Plugin> pip = pi->plugin ();
+		if (!pip) {
+			return jsonrpc_error (id, -32602, "Plugin instance unavailable");
+		}
+
+		bool     ok                       = false;
+		uint32_t resolved_control_id      = 0;
+		int      resolved_parameter_index = -1;
+
+		if (parameter_index) {
+			resolved_control_id = pip->nth_parameter ((uint32_t)*parameter_index, ok);
+			if (!ok) {
+				return jsonrpc_error (id, -32602, "parameterIndex out of range");
+			}
+			resolved_parameter_index = *parameter_index;
+		} else {
+			resolved_control_id = (uint32_t)*control_id;
+			for (uint32_t ppi = 0; ppi < pip->parameter_count (); ++ppi) {
+				const uint32_t cid = pip->nth_parameter (ppi, ok);
+				if (!ok) {
+					continue;
+				}
+				if (cid == resolved_control_id) {
+					resolved_parameter_index = (int)ppi;
+					break;
+				}
+			}
+			if (resolved_parameter_index < 0) {
+				return jsonrpc_error (id, -32602, "controlId not found");
+			}
+		}
+
+		std::shared_ptr<ARDOUR::AutomationControl> c =
+		    pi->automation_control (Evoral::Parameter (ARDOUR::PluginAutomation, 0, resolved_control_id));
+		if (!c) {
+			return jsonrpc_error (id, -32602, "Parameter automation control not available");
+		}
+		if (!c->alist ()) {
+			return jsonrpc_error (id, -32602, "Parameter automation control not available");
+		}
+
+		const int points_cleared = (int) c->alist ()->size ();
+		c->alist ()->clear ();
+		c->set_automation_state (ARDOUR::Off);
+
+		std::ostringstream structured;
+		structured << "{\"id\":\"" << json_escape (route->id ().to_s ()) << "\""
+		           << ",\"pluginIndex\":" << plugin_index
+		           << ",\"parameterIndex\":" << resolved_parameter_index
+		           << ",\"controlId\":" << resolved_control_id
+		           << ",\"pointsCleared\":" << points_cleared
+		           << ",\"automationState\":\"Off\""
+		           << "}";
+
+		return jsonrpc_result (
+		    id,
+		    std::string ("{\"content\":[{\"type\":\"text\",\"text\":\"Plugin parameter automation cleared\"}],\"structuredContent\":") + structured.str () + "}");
+	}
+
 	return std::string ();
 }
 
