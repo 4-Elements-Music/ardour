@@ -1501,6 +1501,181 @@
       }
     },
     {
+      "name": "plugin_automation_add",
+      "title": "Add Plugin Parameter Automation Curve",
+      "description": "Append a list of (timeS, value) points to one plugin parameter's automation list. Sets automation state to Play. Use exactly one of parameterIndex or controlId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pluginIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parameterIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "controlId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "points": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "timeS": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "timeS",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "pluginIndex",
+          "points"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "parameterIndex"
+            ]
+          },
+          {
+            "required": [
+              "controlId"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "id",
+          "pluginIndex",
+          "parameterIndex",
+          "controlId",
+          "pointsAdded",
+          "automationState"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pluginIndex": {
+            "type": "integer"
+          },
+          "parameterIndex": {
+            "type": "integer"
+          },
+          "controlId": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "pointsAdded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "automationState": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_automation_clear",
+      "title": "Clear Plugin Parameter Automation",
+      "description": "Remove all automation points from one plugin parameter and set state to Off. Idempotent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pluginIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parameterIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "controlId": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "pluginIndex"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "parameterIndex"
+            ]
+          },
+          {
+            "required": [
+              "controlId"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "id",
+          "pluginIndex",
+          "parameterIndex",
+          "controlId",
+          "pointsCleared",
+          "automationState"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pluginIndex": {
+            "type": "integer"
+          },
+          "parameterIndex": {
+            "type": "integer"
+          },
+          "controlId": {
+            "type": "integer"
+          },
+          "pointsCleared": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "automationState": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "plugin_set_enabled",
       "title": "Set Plugin Enabled",
       "description": "Enable or disable one route plugin by index.",
