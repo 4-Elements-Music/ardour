@@ -1,5 +1,25 @@
 import Ajv from 'ajv';
 
+// Mirrors components/ardour/libs/surfaces/mcp_http/mcp_http_server.cc canonical_tool_name.
+// The C++ canonicalizer only replaces the FIRST underscore that follows a known group
+// prefix; a global s/_/// turns multi-underscore names like `audio_region_stretch`
+// into the wrong shape (`audio/region/stretch` instead of `audio_region/stretch`).
+const KNOWN_GROUPS = [
+  'session', 'transport', 'markers', 'tracks', 'buses',
+  'track', 'region', 'plugin', 'midi_region', 'midi_note', 'audio_region',
+];
+
+function canonicalSlashForm(name) {
+  if (name.includes('/')) return null;
+  for (const group of KNOWN_GROUPS) {
+    const prefix = group + '_';
+    if (name.length > prefix.length && name.startsWith(prefix)) {
+      return group + '/' + name.slice(prefix.length);
+    }
+  }
+  return null;
+}
+
 /**
  * ActionProxy — validates MCP tool calls against schemas, forwards them to
  * the correct Ardour MCP HTTP endpoint via the session's action queue.
@@ -18,8 +38,14 @@ export class ActionProxy {
       // MCP HTTP accepts slash, underscore, and dot forms. Register all variants.
       const name = tool.name;
       const variants = [name];
-      if (name.includes('/')) variants.push(name.replace(/\//g, '_'), name.replace(/\//g, '.'));
-      if (name.includes('_') && !name.includes('/')) variants.push(name.replace(/_/g, '/'));
+      if (name.includes('/')) {
+        variants.push(name.replace(/\//g, '_'), name.replace(/\//g, '.'));
+      } else if (name.includes('_')) {
+        const slash = canonicalSlashForm(name);
+        if (slash) {
+          variants.push(slash, slash.replace(/\//g, '.'));
+        }
+      }
       const validator = tool.inputSchema ? ajv.compile(tool.inputSchema) : () => true;
       for (const v of variants) {
         this._validators.set(v, { tool: name, validator });

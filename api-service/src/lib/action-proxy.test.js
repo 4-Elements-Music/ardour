@@ -78,6 +78,36 @@ describe('ActionProxy.execute', () => {
     );
   });
 
+  it('canonicalizes multi-segment underscore names to the right slash form', async () => {
+    // Regression: `audio_region_stretch` must register `audio_region/stretch`
+    // (group `audio_region` + verb `stretch`), NOT `audio/region/stretch` from
+    // a global s/_///. Bug surfaced when sessions.js called the slash form
+    // and got UNKNOWN_TOOL.
+    const proxy = new ActionProxy({
+      toolSchemas: {
+        tools: [
+          { name: 'audio_region_stretch', inputSchema: { type: 'object' } },
+          { name: 'plugin_automation_add', inputSchema: { type: 'object' } },
+          { name: 'midi_region_add', inputSchema: { type: 'object' } },
+        ],
+      },
+      httpClient: globalThis.fetch,
+      config: { actionTimeoutMs: 2000, actionQueueTimeoutMs: 5000 },
+    });
+    // Internal map check via _validate (it throws UNKNOWN_TOOL if missing).
+    assert.doesNotThrow(() => proxy._validate('audio_region_stretch', {}));
+    assert.doesNotThrow(() => proxy._validate('audio_region/stretch', {}));
+    assert.doesNotThrow(() => proxy._validate('audio_region.stretch', {}));
+    assert.doesNotThrow(() => proxy._validate('plugin_automation_add', {}));
+    assert.doesNotThrow(() => proxy._validate('plugin/automation_add', {}));
+    assert.doesNotThrow(() => proxy._validate('midi_region_add', {}));
+    assert.doesNotThrow(() => proxy._validate('midi_region/add', {}));
+    // The buggy global-replace form must NOT be registered:
+    assert.throws(() => proxy._validate('audio/region/stretch', {}), /UNKNOWN_TOOL/);
+    assert.throws(() => proxy._validate('plugin/automation/add', {}), /UNKNOWN_TOOL/);
+    assert.throws(() => proxy._validate('midi/region/add', {}), /UNKNOWN_TOOL/);
+  });
+
   it('updates lastActivity', async () => {
     fake = new FakeArdourProcess();
     await fake.start(5943);
