@@ -154,3 +154,6 @@ tags
 
 # misc custom files git should ignore
 /local
+
+# ardour_build.sh output
+build.log
