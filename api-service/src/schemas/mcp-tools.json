@@ -3288,6 +3288,30 @@
           }
         }
       }
+    },
+    {
+      "name": "place_stem_region",
+      "description": "Place a stem WAV onto a stem-named track with explicit fidelity tagging. Wraps audio_region_add and forwards stemType + fidelityRank into the iXML pass at export time.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "uploadId", "position", "stemType", "fidelityRank"],
+        "properties": {
+          "trackId": { "type": "string" },
+          "uploadId": { "type": "string" },
+          "position": { "type": "object" },
+          "timelineLength": { "type": "object" },
+          "sourceOffsetSamples": { "type": "integer", "minimum": 0 },
+          "fadeInSamples": { "type": "integer", "minimum": 0 },
+          "fadeOutSamples": { "type": "integer", "minimum": 0 },
+          "gainDb": { "type": "number" },
+          "stemType": {
+            "type": "string",
+            "enum": ["bass", "drums", "vocals", "other", "guitar", "keys", "piano"]
+          },
+          "fidelityRank": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "requestId": { "type": "string" }
+        }
+      }
     }
   ]
 }

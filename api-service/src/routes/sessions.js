@@ -554,6 +554,77 @@ print("OK")
       return reply.code(202).send({ ok: true, jobId, status: 'pending' });
     }
 
+    if (tool === 'place_stem_region') {
+      // place_stem_region is a thin wrapper that forwards to audio_region_add
+      // with stemType + fidelityRank attached. Identical decode/upload semantics.
+      params = { ...(params || {}) };
+      const VALID_STEMS = new Set(['bass', 'drums', 'vocals', 'other', 'guitar', 'keys', 'piano']);
+      if (!VALID_STEMS.has(params.stemType)) {
+        return reply.code(400).send({
+          error_code: 'INVALID_PARAMS',
+          error: 'stemType must be one of bass|drums|vocals|other|guitar|keys|piano',
+        });
+      }
+      if (params.fidelityRank !== undefined) {
+        if (!Number.isInteger(params.fidelityRank) || params.fidelityRank < 0 || params.fidelityRank > 2) {
+          return reply.code(400).send({
+            error_code: 'INVALID_PARAMS',
+            error: 'fidelityRank must be an integer in [0, 2]',
+          });
+        }
+      }
+      const stemType = params.stemType;
+      const fidelityRank = params.fidelityRank;
+      // Strip fields the C++ MCP doesn't recognize and forward via audio_region_add
+      const inner = { ...params };
+      delete inner.requestId;  // re-keyed below per audio_region_add's idempotency cache
+      const reqId = params.requestId || `place_stem_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+
+      const uploadId2 = inner.uploadId;
+      if (!uploadId2) {
+        return reply.code(400).send({ error_code: 'MISSING_UPLOAD', message: 'uploadId required' });
+      }
+      const uploadPath = app.sessionManager.getUploadPath(req.params.id, uploadId2);
+      if (!uploadPath) {
+        return reply.code(404).send({ error_code: 'MISSING_UPLOAD', message: `uploadId ${uploadId2} not found` });
+      }
+      let decodedPath = app.sessionManager.getDecodedPath(req.params.id, uploadId2);
+      if (!decodedPath) {
+        try {
+          decodedPath = await app.sessionManager.decodeOnce(req.params.id, uploadId2, async () => {
+            const decodedDir = joinPath(s.sessionDir, 'decoded');
+            await mkdir(decodedDir, { recursive: true });
+            const out = joinPath(decodedDir, `${uploadId2}.wav`);
+            const cached = app.sessionManager.getDecodedPath(req.params.id, uploadId2);
+            if (cached) return cached;
+            await decodeToCanonicalWav({ input: uploadPath, output: out, validatorBin: app.config.audioValidatorBin });
+            app.sessionManager.cacheDecodedPath(req.params.id, uploadId2, out);
+            return out;
+          });
+        } catch (e) {
+          return reply.code(400).send({
+            error_code: e.code || 'DECODE_FAILED', message: e.message,
+            stderr: e.stderr ? String(e.stderr).slice(-1024) : undefined,
+          });
+        }
+      }
+      inner.decodedPath = decodedPath;
+      inner.requestId = reqId;
+      try {
+        const result = await app.actionProxy.execute(s, 'audio_region_add', inner, req.id);
+        const payload = result.result ?? result;
+        const sc = payload?.structuredContent || payload || {};
+        return {
+          success: true,
+          regionId: sc.regionId,
+          stemType,
+          fidelityRank,
+        };
+      } catch (e) {
+        return mapProxyError(reply, e);
+      }
+    }
+
     if (tool === 'audio_region_add') {
       // Client MUST NOT supply decodedPath — it's server-injected.
       params = { ...(params || {}) };
