@@ -559,6 +559,12 @@ print("OK")
       params = { ...(params || {}) };
       delete params.decodedPath;
 
+      if (params.fidelityRank !== undefined) {
+        if (!Number.isInteger(params.fidelityRank) || params.fidelityRank < 0 || params.fidelityRank > 2) {
+          return reply.code(400).send({ error_code: 'INVALID_PARAMS', error: 'fidelityRank must be an integer in [0, 2]' });
+        }
+      }
+
       const reqId = params.requestId;
       // Include dryRun in the cache key so a dryRun + live call that happen to share a
       // requestId don't cross-replay each other's responses (different operations,

@@ -2469,6 +2469,12 @@
             "type": "string",
             "description": "Server-injected absolute path resolved from uploadId; clients MUST NOT supply."
           },
+          "fidelityRank": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+            "description": "0=original, 1=mel_band_roformer, 2=htdemucs_ft. Threaded into iXML at export time for Ledger consumption."
+          },
           "name": {
             "type": "string"
           },

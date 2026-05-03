@@ -135,4 +135,36 @@ describe('audio_region_add pre-hook', { skip: skipNoValidator }, () => {
     assert.deepEqual(JSON.parse(a.body), JSON.parse(b.body));
     assert.equal(fakeProxyCalls.length, 1, 'proxy should be called once across two requestId-matching invocations');
   });
+
+  it('passes fidelityRank through to the MCP proxy', async () => {
+    fakeProxyCalls.length = 0;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'audio_region_add', params: {
+        trackId: 'route:test', uploadId,
+        position: { unit: 'samples', value: 0 },
+        fidelityRank: 0,
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 200, `action failed: ${res.body}`);
+    assert.equal(fakeProxyCalls.length, 1);
+    assert.equal(fakeProxyCalls[0].params.fidelityRank, 0);
+  });
+
+  it('rejects out-of-range fidelityRank with INVALID_PARAMS', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'audio_region_add', params: {
+        trackId: 'route:test', uploadId,
+        position: { unit: 'samples', value: 0 },
+        fidelityRank: 5,
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(JSON.parse(res.body).error_code, 'INVALID_PARAMS');
+  });
 });
