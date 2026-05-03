@@ -429,6 +429,90 @@ print("label="..cap.label)
       }
     }
 
+    if (tool === 'set_crossfade') {
+      const a = params?.regionAId;
+      const b = params?.regionBId;
+      const d = params?.durationS;
+      if (!a || !b || typeof d !== 'number' || d <= 0) {
+        return reply.code(400).send({
+          error_code: 'INVALID_PARAMS',
+          error: 'regionAId, regionBId, durationS (>0) required',
+        });
+      }
+      const curve = params.curve || 'equal_power';
+      const luaStr = (v) => JSON.stringify(String(v));
+      // Crossfade = region-A fade-out at the overlap tail + region-B fade-in at the overlap head.
+      // Both lengths set to the crossfade duration; Ardour's fade-curve enum maps:
+      //  linear=0, equal_power=2 (constant power), fast_in_slow_out=4 (slow ease).
+      const curveCodes = { linear: 0, equal_power: 2, fast_in_slow_out: 4 };
+      const code = `
+local A = ${luaStr(a)}
+local B = ${luaStr(b)}
+local DUR = ${d}
+local CURVE = ${curveCodes[curve] ?? 2}
+local SR = Session:nominal_sample_rate()
+local samples = math.floor(DUR * SR + 0.5)
+
+local function find_region(rid)
+  for r in Session:get_routes():iter() do
+    local pl = r:to_track() and r:to_track():playlist() or nil
+    if pl then
+      for reg in pl:region_list():iter() do
+        if reg:id():to_s() == rid then return reg end
+      end
+    end
+  end
+  return nil
+end
+
+local rA = find_region(A)
+local rB = find_region(B)
+if not rA then print("ERR region_a_not_found") return end
+if not rB then print("ERR region_b_not_found") return end
+
+local arA = rA:to_audioregion()
+local arB = rB:to_audioregion()
+if not arA or arA:isnil() or not arB or arB:isnil() then
+  print("ERR not_audio_region") return
+end
+arA:set_fade_out_length(samples)
+arA:set_fade_out_active(true)
+arA:set_fade_out_shape(CURVE)
+arB:set_fade_in_length(samples)
+arB:set_fade_in_active(true)
+arB:set_fade_in_shape(CURVE)
+print("OK")
+print("samples="..tostring(samples))
+`.trim();
+      try {
+        const rpc = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);
+        const { inner } = parseLuaEvalResult(rpc);
+        if (!inner || !inner.success) {
+          return reply.code(500).send({
+            error_code: 'LUA_FAILED',
+            message: inner?.error || 'lua_eval failed',
+          });
+        }
+        const lines = String(inner.output || '').split('\n').filter(Boolean);
+        if (lines[0] && lines[0].startsWith('ERR ')) {
+          return reply.code(400).send({
+            error_code: 'CROSSFADE_FAILED',
+            message: lines[0].slice(4),
+            output: inner.output,
+          });
+        }
+        return {
+          success: true,
+          regionAId: a,
+          regionBId: b,
+          durationS: d,
+          curve,
+        };
+      } catch (e) {
+        return reply.code(500).send({ error_code: 'CROSSFADE_FAILED', message: e.message });
+      }
+    }
+
     if (tool === 'audio_region_stretch') {
       params = { ...(params || {}) };
       const regionId = params.regionId;

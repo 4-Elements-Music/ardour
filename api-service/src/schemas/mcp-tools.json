@@ -3264,6 +3264,24 @@
         },
         "additionalProperties": false
       }
+    },
+    {
+      "name": "set_crossfade",
+      "description": "Set a crossfade between two overlapping audio regions on the same track. Routes through session/lua_eval.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["regionAId", "regionBId", "durationS"],
+        "properties": {
+          "regionAId": { "type": "string" },
+          "regionBId": { "type": "string" },
+          "durationS": { "type": "number", "exclusiveMinimum": 0, "maximum": 30.0 },
+          "curve": {
+            "type": "string",
+            "enum": ["linear", "equal_power", "fast_in_slow_out"],
+            "default": "equal_power"
+          }
+        }
+      }
     }
   ]
 }
