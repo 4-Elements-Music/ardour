@@ -1129,6 +1129,15 @@ print("name=" .. NAME)
           output: inner.output,
         });
       }
+      if (req.body?.mashupMetadata) {
+        try {
+          const { embedIxmlInWav } = await import('../lib/ixml-embed.js');
+          await embedIxmlInWav(outputPath, req.body.mashupMetadata);
+        } catch (e) {
+          // Don't fail the export — log a warning and continue.
+          req.log?.warn?.({ err: e.message, outputPath }, 'iXML embed failed');
+        }
+      }
       const sampleRate = parseInt(fields.sample_rate || s.sampleRate, 10) || s.sampleRate;
       const durationSamples = parseInt(fields.duration_samples || '0', 10);
       const durationS = durationSamples / sampleRate;

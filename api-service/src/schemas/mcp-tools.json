@@ -3326,6 +3326,43 @@
           "replace": { "type": "boolean", "default": false }
         }
       }
+    },
+    {
+      "name": "export_audio",
+      "description": "Render the session to an audio file via Session:simple_export. Supports wav/flac/ogg/mp3/cd presets. When mashupMetadata is provided the post-export step embeds an iXML chunk in the resulting WAV so the Ledger can recover render context.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["filename"],
+        "properties": {
+          "filename": { "type": "string", "minLength": 1 },
+          "format": { "type": "string", "enum": ["wav", "flac", "ogg", "mp3", "cd"], "default": "wav" },
+          "start_samples": { "type": "integer", "minimum": 0 },
+          "end_samples": { "type": "integer", "minimum": 1 },
+          "mashupMetadata": {
+            "type": "object",
+            "description": "Optional mashup-pipeline metadata embedded as iXML in the exported WAV. Read by the Ledger reconciler.",
+            "properties": {
+              "planId": { "type": "string" },
+              "renderId": { "type": "string" },
+              "clientId": { "type": "string" },
+              "catalogSnapshotId": { "type": "string" },
+              "revision": { "type": "integer", "minimum": 0 },
+              "assetIds": { "type": "array", "items": { "type": "string" } },
+              "transformations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["regionRef", "op"],
+                  "properties": {
+                    "regionRef": { "type": "string" },
+                    "op": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }
