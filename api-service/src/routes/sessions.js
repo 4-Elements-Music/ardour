@@ -190,6 +190,158 @@ export async function sessionRoutes(app) {
       return out;
     };
 
+    if (tool === 'load_nks_preset') {
+      const track = params?.track;
+      const nksPath = params?.nksPath;
+      if (!track || !nksPath) {
+        return reply.code(400).send({
+          error_code: 'INVALID_PARAMS',
+          error: 'track and nksPath required',
+        });
+      }
+      const { existsSync } = await import('node:fs');
+      if (!existsSync(nksPath)) {
+        return reply.code(404).send({ error_code: 'NKS_NOT_FOUND', message: `${nksPath} not found` });
+      }
+      const slot = (params.slot ?? 0) | 0;
+      const replace = !!params.replace;
+
+      // Parse NKSF and extract PCHK (component state) in one pass.
+      let extracted;
+      try {
+        const { extractNksfState } = await import('../indexer/nksf-to-vstpreset.js');
+        extracted = await extractNksfState(nksPath);
+      } catch (e) {
+        return reply.code(400).send({
+          error_code: 'INVALID_NKS',
+          message: `failed to parse NKS: ${e.message}`,
+        });
+      }
+      if (!extracted) {
+        return reply.code(400).send({
+          error_code: 'INVALID_NKS',
+          message: 'not a valid NKSF/NKSN file (missing RIFF/NIKS header)',
+        });
+      }
+      if (!extracted.pchk) {
+        return reply.code(400).send({
+          error_code: 'INVALID_NKS',
+          message: 'NKSF has no PCHK (plugin state) chunk',
+        });
+      }
+      // Extract VST3 FUID from PLID chunk (keys: VST3, vst3_id, vst_id, vst3, VST).
+      const plid = extracted.plid || {};
+      const fuid = plid.VST3 || plid.vst3 || plid.VST || plid.vst3_id || plid.vst_id || null;
+      if (!fuid || !/^[0-9A-Fa-f]{32}$/.test(String(fuid).trim())) {
+        return reply.code(400).send({
+          error_code: 'NKS_NO_FUID',
+          message: 'NKSF PLID chunk has no VST3 FUID; AU-only presets unsupported in this path',
+        });
+      }
+      const fuidNorm = String(fuid).trim().toUpperCase();
+      // Reverse-lookup plugin name from known-fuids.json (via presetStore).
+      const fuids = (app.presetStore && app.presetStore.knownFuids)
+        ? app.presetStore.knownFuids() : {};
+      let pluginName = null;
+      for (const [name, entry] of Object.entries(fuids)) {
+        if (String(entry.uid).toUpperCase() === fuidNorm) { pluginName = name; break; }
+      }
+      if (!pluginName) {
+        return reply.code(400).send({
+          error_code: 'PLUGIN_UNKNOWN',
+          message: `FUID ${fuidNorm} not in known-fuids.json; run scripts/refresh-nks-index.js`,
+          fuid: fuidNorm,
+        });
+      }
+      // Convert PCHK to a temp .vstpreset and load via the existing preset/load Lua flow.
+      const { buildVstPreset } = await import('../indexer/nksf-to-vstpreset.js');
+      const { writeFile } = await import('node:fs/promises');
+      const { tmpdir: ostmp } = await import('node:os');
+      const { join: joinp } = await import('node:path');
+      const { randomUUID } = await import('node:crypto');
+      const presetPath = joinp(ostmp(), `nks-${randomUUID()}.vstpreset`);
+      try {
+        const presetBytes = buildVstPreset(fuidNorm, extracted.pchk);
+        await writeFile(presetPath, presetBytes);
+      } catch (e) {
+        return reply.code(500).send({
+          error_code: 'NKS_CONVERT_FAILED',
+          message: `failed to build .vstpreset: ${e.message}`,
+        });
+      }
+      // Now call preset/load with synthetic ardour_uri pointing to the temp file.
+      // Ardour Lua: plugin:preset_by_uri("file://" + path).
+      const presetUri = `file://${presetPath}`;
+      const luaStr = (v) => JSON.stringify(String(v));
+      const code = `
+local TRACK = ${luaStr(track)}
+local SLOT = ${slot}
+local URI = ${luaStr(presetUri)}
+local PLUGIN_NAME = ${luaStr(pluginName)}
+local PLUGIN_TYPE = ${(fuids[pluginName].type ?? 7) | 0}
+local REPLACE = ${replace ? 'true' : 'false'}
+
+local route = nil
+for r in Session:get_routes():iter() do if r:name() == TRACK then route = r; break end end
+if not route then print("ERR no_route") return end
+
+local function current_plugin()
+  local p = route:nth_plugin(SLOT)
+  if not p or p:isnil() then return nil, nil, nil end
+  local ins = p:to_insert()
+  if not ins or ins:isnil() then return nil, nil, nil end
+  local pl = ins:plugin(0)
+  if not pl or pl:isnil() then return nil, nil, nil end
+  return p, ins, pl
+end
+
+local proc, insert, plugin = current_plugin()
+if plugin and REPLACE then
+  route:remove_processor(insert, nil, false)
+  proc, insert, plugin = nil, nil, nil
+end
+if not plugin then
+  local new_proc = ARDOUR.LuaAPI.new_plugin(Session, PLUGIN_NAME, PLUGIN_TYPE, "")
+  if not new_proc or new_proc:isnil() then print("ERR new_plugin_nil") return end
+  local rc = route:add_processor_by_index(new_proc, SLOT, nil, true)
+  if rc ~= 0 then print("ERR add_rc="..tostring(rc)) return end
+  proc, insert, plugin = current_plugin()
+end
+
+local rec = plugin:preset_by_uri(URI)
+if not rec then print("ERR preset_not_found") return end
+if not rec.valid then print("ERR preset_invalid") return end
+local ok, err = pcall(function() return plugin:load_preset(rec) end)
+if not ok then print("ERR load_preset:"..tostring(err)) return end
+print("OK")
+print("plugin="..plugin:name())
+`.trim();
+      try {
+        const rpc = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);
+        const { inner } = parseLuaEvalResult(rpc);
+        if (!inner || !inner.success) {
+          return reply.code(500).send({
+            error_code: 'LUA_FAILED', message: inner?.error || 'lua_eval failed',
+          });
+        }
+        const lines = String(inner.output || '').split('\n').filter(Boolean);
+        if (lines[0] && lines[0].startsWith('ERR ')) {
+          return reply.code(400).send({
+            error_code: 'NKS_LOAD_FAILED', message: lines[0].slice(4), output: inner.output,
+          });
+        }
+        return {
+          success: true,
+          track,
+          plugin: pluginName,
+          fuid: fuidNorm,
+          presetPath,
+        };
+      } catch (e) {
+        return reply.code(500).send({ error_code: 'NKS_LOAD_FAILED', message: e.message });
+      }
+    }
+
     if (tool === 'preset/search') {
       try {
         const results = app.presetStore.search(params || {});

@@ -3312,6 +3312,20 @@
           "requestId": { "type": "string" }
         }
       }
+    },
+    {
+      "name": "load_nks_preset",
+      "description": "Parse an NKS preset (.nksf/.nksn), resolve the host plugin via known-fuids.json, instantiate it on the named track, and load the preset state. Composes the existing nksf parser + nksf-to-vstpreset converter + preset/load Lua flow.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["track", "nksPath"],
+        "properties": {
+          "track": { "type": "string", "minLength": 1 },
+          "nksPath": { "type": "string", "minLength": 1 },
+          "slot": { "type": "integer", "minimum": 0, "default": 0 },
+          "replace": { "type": "boolean", "default": false }
+        }
+      }
     }
   ]
 }
