@@ -433,23 +433,33 @@ print("label="..cap.label)
       const a = params?.regionAId;
       const b = params?.regionBId;
       const d = params?.durationS;
-      if (!a || !b || typeof d !== 'number' || d <= 0) {
+      if (!a || !b || typeof d !== 'number' || d <= 0 || d > 30) {
         return reply.code(400).send({
           error_code: 'INVALID_PARAMS',
-          error: 'regionAId, regionBId, durationS (>0) required',
+          error: 'regionAId, regionBId, durationS (0 < d <= 30) required',
+        });
+      }
+      const VALID_CURVES = new Set(['linear', 'equal_power', 'fast_in_slow_out']);
+      if (params.curve != null && !VALID_CURVES.has(params.curve)) {
+        return reply.code(400).send({
+          error_code: 'INVALID_PARAMS',
+          error: 'curve must be one of linear|equal_power|fast_in_slow_out',
         });
       }
       const curve = params.curve || 'equal_power';
       const luaStr = (v) => JSON.stringify(String(v));
       // Crossfade = region-A fade-out at the overlap tail + region-B fade-in at the overlap head.
-      // Both lengths set to the crossfade duration; Ardour's fade-curve enum maps:
-      //  linear=0, equal_power=2 (constant power), fast_in_slow_out=4 (slow ease).
-      const curveCodes = { linear: 0, equal_power: 2, fast_in_slow_out: 4 };
+      // Both lengths set to the crossfade duration. Curve name is resolved to an
+      // ARDOUR.FadeShape.* constant inside Lua so we are not coupled to enum-int values.
       const code = `
 local A = ${luaStr(a)}
 local B = ${luaStr(b)}
 local DUR = ${d}
-local CURVE = ${curveCodes[curve] ?? 2}
+local CURVE_NAME = ${luaStr(curve)}
+local CURVE = ARDOUR.FadeShape.FadeConstantPower
+if     CURVE_NAME == "linear"           then CURVE = ARDOUR.FadeShape.FadeLinear
+elseif CURVE_NAME == "fast_in_slow_out" then CURVE = ARDOUR.FadeShape.FadeSymmetric
+end
 local SR = Session:nominal_sample_rate()
 local samples = math.floor(DUR * SR + 0.5)
 
@@ -482,7 +492,6 @@ arB:set_fade_in_length(samples)
 arB:set_fade_in_active(true)
 arB:set_fade_in_shape(CURVE)
 print("OK")
-print("samples="..tostring(samples))
 `.trim();
       try {
         const rpc = await app.actionProxy.execute(s, 'session/lua_eval', { code }, req.id);

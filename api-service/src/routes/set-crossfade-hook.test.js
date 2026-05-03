@@ -51,7 +51,8 @@ describe('set_crossfade tool', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('forwards a Lua eval that sets fade-out on regionA and fade-in on regionB', async () => {
+  it('Lua sets both fade-out on regionA and fade-in on regionB', async () => {
+    fakeProxyCalls.length = 0;
     const res = await app.inject({
       method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
       payload: { tool: 'set_crossfade', params: {
@@ -70,8 +71,69 @@ describe('set_crossfade tool', () => {
     const code = fakeProxyCalls[0].params.code;
     assert.ok(code.includes('"r1"'), 'region A id should be in lua');
     assert.ok(code.includes('"r2"'), 'region B id should be in lua');
-    assert.ok(code.includes('set_fade_out_length') || code.includes('set_fade_in_length'),
-      'lua should call set_fade_*_length');
+    assert.ok(
+      code.includes('set_fade_out_length') && code.includes('set_fade_in_length'),
+      'lua must call BOTH set_fade_out_length and set_fade_in_length',
+    );
+    assert.ok(
+      code.includes('set_fade_out_active(true)') && code.includes('set_fade_in_active(true)'),
+      'lua must activate BOTH fade-out and fade-in',
+    );
+  });
+
+  it('emits FadeConstantPower in Lua for equal_power curve', async () => {
+    fakeProxyCalls.length = 0;
+    const res = await app.inject({
+      method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'set_crossfade', params: {
+        regionAId: 'r1', regionBId: 'r2', durationS: 0.5, curve: 'equal_power',
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 200, `set_crossfade failed: ${res.body}`);
+    const code = fakeProxyCalls[0].params.code;
+    assert.ok(
+      code.includes('ARDOUR.FadeShape.FadeConstantPower'),
+      'lua must reference FadeConstantPower for equal_power curve',
+    );
+    assert.ok(
+      !code.includes('ARDOUR.FadeShape.FadeSlow'),
+      'lua must NOT reference FadeSlow (was the prior wrong mapping)',
+    );
+  });
+
+  it('emits FadeLinear in Lua for linear curve', async () => {
+    fakeProxyCalls.length = 0;
+    const res = await app.inject({
+      method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'set_crossfade', params: {
+        regionAId: 'r1', regionBId: 'r2', durationS: 0.5, curve: 'linear',
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 200, `set_crossfade failed: ${res.body}`);
+    const code = fakeProxyCalls[0].params.code;
+    assert.ok(
+      code.includes('ARDOUR.FadeShape.FadeLinear'),
+      'lua must reference FadeLinear for linear curve',
+    );
+  });
+
+  it('emits FadeSymmetric in Lua for fast_in_slow_out curve', async () => {
+    fakeProxyCalls.length = 0;
+    const res = await app.inject({
+      method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'set_crossfade', params: {
+        regionAId: 'r1', regionBId: 'r2', durationS: 0.5, curve: 'fast_in_slow_out',
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 200, `set_crossfade failed: ${res.body}`);
+    const code = fakeProxyCalls[0].params.code;
+    assert.ok(
+      code.includes('ARDOUR.FadeShape.FadeSymmetric'),
+      'lua must reference FadeSymmetric for fast_in_slow_out curve',
+    );
   });
 
   it('rejects missing regionAId/regionBId with INVALID_PARAMS', async () => {
@@ -89,6 +151,30 @@ describe('set_crossfade tool', () => {
       method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
       payload: { tool: 'set_crossfade', params: {
         regionAId: 'r1', regionBId: 'r2', durationS: 0,
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(JSON.parse(res.body).error_code, 'INVALID_PARAMS');
+  });
+
+  it('rejects durationS > 30 with INVALID_PARAMS', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'set_crossfade', params: {
+        regionAId: 'r1', regionBId: 'r2', durationS: 30.5,
+      }},
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(JSON.parse(res.body).error_code, 'INVALID_PARAMS');
+  });
+
+  it('rejects unknown curve with INVALID_PARAMS', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/v1/sessions/${sessionId}/actions`,
+      payload: { tool: 'set_crossfade', params: {
+        regionAId: 'r1', regionBId: 'r2', durationS: 0.5, curve: 'S-curve',
       }},
       headers: { 'content-type': 'application/json' },
     });
