@@ -156,6 +156,18 @@ RBEffect::run (std::shared_ptr<Region> r, Progress* progress)
 
 	samplecnt_t read_duration = samplecnt_t (region->length_samples () / (double)region->stretch ());
 
+	/* Guard degenerate input. When read_duration is 0 the study/process
+	 * loops below (`while (pos < read_duration)`) never execute, so
+	 * stretcher.process(..., final=true) is never called — RubberBand is
+	 * never told the input ended, stretcher.available() returns 0 forever,
+	 * and the "completing" wait loop spins indefinitely at ~0% CPU. Bail
+	 * early instead: a zero-length region has nothing to stretch. */
+	if (read_duration <= 0) {
+		error << string_compose (_("tempoize: region %1 has zero readable duration; nothing to stretch"),
+		                         region->name ()) << endmsg;
+		return -1;
+	}
+
 	uint32_t channels = region->n_channels ();
 
 #ifndef NDEBUG
@@ -299,13 +311,29 @@ RBEffect::run (std::shared_ptr<Region> r, Progress* progress)
 
 		/* completing */
 
+		/* Defense-in-depth against a never-finalizing stretcher: if
+		 * available() reports 0 continuously for longer than this bound,
+		 * the stretcher will never reach the -1 (done) state and the loop
+		 * would otherwise spin forever. 120s of *continuous* zero output
+		 * is well beyond any legitimate retrieve gap (RubberBand drains
+		 * within milliseconds once process(final=true) has been called),
+		 * but generous enough not to false-trip on a very large region. */
+		const gint64 stall_limit_us = 120 * 1000000;
+		gint64       last_progress_us = g_get_monotonic_time ();
+
 		samplecnt_t avail = 0;
 		while ((avail = stretcher.available ()) >= 0 && !tsr.cancel) {
 			if (avail == 0) {
+				if (g_get_monotonic_time () - last_progress_us > stall_limit_us) {
+					error << string_compose (_("tempoize: stretcher stalled on region %1 — no output for %2s; aborting"),
+					                         region->name (), stall_limit_us / 1000000) << endmsg;
+					goto out;
+				}
 				/* wait for stretcher threads */
 				Glib::usleep (10000);
 				continue;
 			}
+			last_progress_us = g_get_monotonic_time ();
 
 			samplecnt_t this_read = min (bufsize, avail);
 
